@@ -17,15 +17,25 @@ interface MatchData {
   roomId: string
   opponent: string
   playerNumber: number
+  myName?: string
+}
+
+interface GameData {
+  matchData: MatchData
+  selectedBird: string
+  opponentBird: string
+  gameReady: boolean
+  socketId?: string
 }
 
 export default function GamePage() {
   const gameRef = useRef<HTMLDivElement>(null)
   const socketRef = useRef<Socket | null>(null)
+  const gameInstanceRef = useRef<any>(null)
   const [gameLoaded, setGameLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [matchStatus, setMatchStatus] = useState<'searching' | 'found' | 'playing' | 'ended'>('searching')
-  const [matchData, setMatchData] = useState<MatchData | null>(null)
+  const [matchStatus, setMatchStatus] = useState<'loading' | 'connecting' | 'playing' | 'ended'>('loading')
+  const [gameData, setGameData] = useState<GameData | null>(null)
   const [gameStats, setGameStats] = useState<GameStats>({
     player1HP: 100,
     player2HP: 100,
@@ -33,128 +43,71 @@ export default function GamePage() {
     player2Score: 0,
   })
 
-  // Memoize the setGameStats function to prevent recreating it on every render
   const updateGameStats = useCallback((updater: (prev: GameStats) => GameStats) => {
     setGameStats(updater)
   }, [])
 
-  // Socket connection and matchmaking
-  useEffect(() => {
-    const playerName = typeof window !== "undefined" 
-      ? localStorage.getItem("playerName") || "Player"
-      : "Player"
-
-    // Connect to Socket.io server
-    socketRef.current = io(process.env.NODE_ENV === 'production' 
-      ? process.env.NEXTAUTH_URL || window.location.origin
-      : 'http://localhost:3001', {
-      transports: ['websocket', 'polling']
-    })
-
-    const socket = socketRef.current
-
-    socket.on('connect', () => {
-      console.log('Connected to server:', socket.id)
-      // Start looking for a match
-      socket.emit('findMatch', { name: playerName })
-    })
-
-    socket.on('queueJoined', (data) => {
-      console.log('Joined queue, position:', data.position)
-      setMatchStatus('searching')
-    })
-
-    socket.on('matchFound', (data: MatchData) => {
-      console.log('Match found:', data)
-      setMatchData(data)
-      setMatchStatus('found')
-      // Start the game after a short delay
-      setTimeout(() => {
-        setMatchStatus('playing')
-        loadGame(data)
-      }, 2000)
-    })
-
-    socket.on('opponentMove', (data) => {
-      // Handle opponent movement
-      if (window.gameScene && window.gameScene.player2) {
-        const { action, x, y, velocityX, velocityY } = data
-        if (action === 'move') {
-          window.gameScene.player2.setPosition(x, y)
-          window.gameScene.player2.setVelocity(velocityX, velocityY)
-        }
-      }
-    })
-
-    socket.on('abilityUsed', (data) => {
-      // Handle opponent abilities
-      if (window.gameScene) {
-        const { playerNumber, ability, target } = data
-        if (playerNumber !== (matchData?.playerNumber || 1)) {
-          window.gameScene.handleOpponentAbility(ability, target)
-        }
-      }
-    })
-
-    socket.on('healthUpdate', (data) => {
-      updateGameStats((prev) => ({
-        ...prev,
-        player1HP: data.player1HP,
-        player2HP: data.player2HP,
-      }))
-    })
-
-    socket.on('gameOver', (data) => {
-      if (window.gameScene) {
-        const isWinner = data.winner === (matchData?.playerNumber || 1)
-        window.gameScene.endGame(
-          isWinner ? "You Win!" : "You Lose!",
-          data.reason
-        )
-      }
-      setMatchStatus('ended')
-    })
-
-    socket.on('opponentDisconnected', () => {
-      if (window.gameScene) {
-        window.gameScene.endGame("You Win!", "Opponent disconnected")
-      }
-      setMatchStatus('ended')
-    })
-
-    socket.on('error', (data) => {
-      console.error('Socket error:', data.message)
-      setError(data.message)
-    })
-
-    return () => {
-      if (socket) {
-        socket.disconnect()
-      }
-    }
-  }, [matchData?.playerNumber, updateGameStats])
-
-  const loadGame = async (matchInfo: MatchData) => {
+  // UPDATED: Load game with existing match data
+  const loadGame = useCallback(async (gameInfo: GameData) => {
     try {
-      // Check if we're in the browser
-      if (typeof window === "undefined") return
-
-      // Check if game container exists
-      if (!gameRef.current) {
-        setError("Game container not found")
-        return
+      console.log('🎮 Starting game load with existing match...', gameInfo)
+      
+      if (typeof window === "undefined") {
+        throw new Error("Game can only run in browser environment")
       }
 
-      // Dynamic import of Phaser with proper default export access
+      // Wait for DOM to be ready
+      await new Promise(resolve => {
+        if (document.readyState === 'complete') {
+          resolve(true)
+        } else {
+          window.addEventListener('load', resolve, { once: true })
+        }
+      })
+
+      // Check game container exists with retry logic
+      let retries = 0
+      const maxRetries = 10
+      
+      while (!gameRef.current && retries < maxRetries) {
+        console.log(`⏳ Waiting for game container... (attempt ${retries + 1}/${maxRetries})`)
+        await new Promise(resolve => setTimeout(resolve, 100))
+        retries++
+      }
+
+      if (!gameRef.current) {
+        throw new Error("Game container not found after retries. Please refresh the page.")
+      }
+
+      console.log('✅ Game container found, loading Phaser...')
+
+      // Clear any existing game content
+      if (gameRef.current) {
+        gameRef.current.innerHTML = ''
+      }
+
+      // Destroy existing game instance if it exists
+      if (gameInstanceRef.current) {
+        try {
+          gameInstanceRef.current.destroy(true)
+        } catch (e) {
+          console.warn('Error destroying previous game instance:', e)
+        }
+        gameInstanceRef.current = null
+      }
+
+      // Dynamic import of Phaser
       const PhaserModule = await import("phaser")
       const Phaser = PhaserModule.default
 
-      // Get player data with fallback values
+      console.log('✅ Phaser loaded successfully')
+
+      // Get player data
       const playerName = typeof window !== "undefined" 
         ? localStorage.getItem("playerName") || "Player"
         : "Player"
 
-      // Create proper Phaser Scene class
+      // Create Phaser Scene class
       class GameScene extends Phaser.Scene {
         private player1: any
         private player2: any
@@ -178,16 +131,23 @@ export default function GamePage() {
         private cooldownTimers: any = {}
         private playerNumber: number
         private roomId: string
+        private selectedBird: string
+        private opponentBird: string
 
         constructor() {
           super({ key: "GameScene" })
-          this.playerNumber = matchInfo.playerNumber
-          this.roomId = matchInfo.roomId
+          this.playerNumber = gameInfo.matchData.playerNumber
+          this.roomId = gameInfo.matchData.roomId
+          this.selectedBird = gameInfo.selectedBird
+          this.opponentBird = gameInfo.opponentBird
         }
 
         preload() {
           try {
-            // Create simple colored rectangles for birds
+            console.log('🎨 Creating game assets...')
+            console.log('🐦 My bird:', this.selectedBird, 'Opponent bird:', this.opponentBird)
+            
+            // Create simple colored rectangles for birds based on selection
             this.add.graphics()
               .fillStyle(0xff6b6b)
               .fillRect(0, 0, 32, 32)
@@ -213,13 +173,17 @@ export default function GamePage() {
               .fillRect(0, 0, 100, 50)
               .generateTexture("cloud", 100, 50)
               .destroy()
+
+            console.log('✅ Game assets created')
           } catch (err) {
-            console.error("Error in preload:", err)
+            console.error("❌ Error in preload:", err)
           }
         }
 
         create() {
           try {
+            console.log('🏗️ Creating game scene...')
+            
             // Store scene reference globally for socket communication
             window.gameScene = this
 
@@ -273,8 +237,9 @@ export default function GamePage() {
             })
 
             this.gameStarted = true
+            console.log('✅ Game scene created successfully')
           } catch (err) {
-            console.error("Error in create:", err)
+            console.error("❌ Error in create:", err)
           }
         }
 
@@ -282,7 +247,7 @@ export default function GamePage() {
           try {
             // Player names based on player number
             const myName = playerName
-            const opponentName = matchInfo.opponent
+            const opponentName = gameInfo.matchData.opponent
 
             // Player 1 UI (left side)
             this.add.text(20, 20, this.playerNumber === 1 ? myName : opponentName, {
@@ -330,46 +295,46 @@ export default function GamePage() {
               strokeThickness: 2,
             })
 
-            // Only show ability UI for the current player
-            if (this.playerNumber === 1) {
-              // Ability cooldown UI
-              this.abilityTexts.q = this.add.text(20, 120, "Q: Ready", {
-                fontSize: "16px",
-                color: "#ffffff",
-                stroke: "#000000",
-                strokeThickness: 1,
-              })
-              this.abilityTexts.e = this.add.text(20, 140, "E: Ready", {
-                fontSize: "16px",
-                color: "#ffffff",
-                stroke: "#000000",
-                strokeThickness: 1,
-              })
-              this.abilityTexts.c = this.add.text(20, 160, "C: Ready", {
-                fontSize: "16px",
-                color: "#ffffff",
-                stroke: "#000000",
-                strokeThickness: 1,
-              })
-              this.abilityTexts.x = this.add.text(20, 180, "X: Ready", {
-                fontSize: "16px",
-                color: "#ffffff",
-                stroke: "#000000",
-                strokeThickness: 1,
-              })
+            // Show ability UI for current player
+            const abilityUIX = this.playerNumber === 1 ? 20 : 620
+            
+            // Ability cooldown UI
+            this.abilityTexts.q = this.add.text(abilityUIX, 120, "Q: Ready", {
+              fontSize: "16px",
+              color: "#ffffff",
+              stroke: "#000000",
+              strokeThickness: 1,
+            })
+            this.abilityTexts.e = this.add.text(abilityUIX, 140, "E: Ready", {
+              fontSize: "16px",
+              color: "#ffffff",
+              stroke: "#000000",
+              strokeThickness: 1,
+            })
+            this.abilityTexts.c = this.add.text(abilityUIX, 160, "C: Ready", {
+              fontSize: "16px",
+              color: "#ffffff",
+              stroke: "#000000",
+              strokeThickness: 1,
+            })
+            this.abilityTexts.x = this.add.text(abilityUIX, 180, "X: Ready", {
+              fontSize: "16px",
+              color: "#ffffff",
+              stroke: "#000000",
+              strokeThickness: 1,
+            })
 
-              // Controls help
-              this.add.text(20, 220, "Controls:", {
-                fontSize: "16px",
-                color: "#ffffff",
-                fontStyle: "bold",
-                stroke: "#000000",
-                strokeThickness: 1,
-              })
-              this.add.text(20, 240, "W/S: Up/Down", { fontSize: "14px", color: "#ffffff" })
-              this.add.text(20, 255, "A/D: Left/Right", { fontSize: "14px", color: "#ffffff" })
-              this.add.text(20, 270, "Q/E/C/X: Abilities", { fontSize: "14px", color: "#ffffff" })
-            }
+            // Controls help
+            this.add.text(abilityUIX, 220, "Controls:", {
+              fontSize: "16px",
+              color: "#ffffff",
+              fontStyle: "bold",
+              stroke: "#000000",
+              strokeThickness: 1,
+            })
+            this.add.text(abilityUIX, 240, "W/S: Up/Down", { fontSize: "14px", color: "#ffffff" })
+            this.add.text(abilityUIX, 255, "A/D: Left/Right", { fontSize: "14px", color: "#ffffff" })
+            this.add.text(abilityUIX, 270, "Q/E/C/X: Abilities", { fontSize: "14px", color: "#ffffff" })
           } catch (err) {
             console.error("Error in createUI:", err)
           }
@@ -466,7 +431,7 @@ export default function GamePage() {
         }
 
         sendMovement(action: string, x: number, y: number, velocityX: number, velocityY: number) {
-          if (socketRef.current) {
+          if (socketRef.current && socketRef.current.connected) {
             socketRef.current.emit('gameAction', {
               roomId: this.roomId,
               action: 'move',
@@ -567,11 +532,12 @@ export default function GamePage() {
             const canPassThroughPipes = this.checkAbilityPath(key)
             
             if (!canPassThroughPipes) {
-              this.showAbilityEffect("Blocked by pipe!", this.player1.x, this.player1.y - 60, "#ff9900")
+              const myPlayer = this.playerNumber === 1 ? this.player1 : this.player2
+              this.showAbilityEffect("Blocked by pipe!", myPlayer.x, myPlayer.y - 60, "#ff9900")
               return
             }
 
-            this.showAbilityEffect(abilityName, 300, 250, "#ffff00")
+            this.showAbilityEffect(abilityName, 600, 250, "#ffff00")
 
             // Send ability to server
             let damage = 0
@@ -607,7 +573,7 @@ export default function GamePage() {
         }
 
         sendGameAction(action: string, payload: any) {
-          if (socketRef.current) {
+          if (socketRef.current && socketRef.current.connected) {
             socketRef.current.emit('gameAction', {
               roomId: this.roomId,
               action,
@@ -625,7 +591,7 @@ export default function GamePage() {
           }
           
           const abilityName = abilityNames[ability as keyof typeof abilityNames] || "Unknown"
-          this.showAbilityEffect(abilityName, 900, 250, "#ff9900")
+          this.showAbilityEffect(abilityName, 600, 350, "#ff9900")
         }
 
         checkAbilityPath(abilityKey: string) {
@@ -773,25 +739,246 @@ export default function GamePage() {
         scene: GameScene,
       }
 
+      console.log('🎮 Creating Phaser game instance...')
+      
       // Create and start the game
-      const game = new Phaser.Game(config)
+      gameInstanceRef.current = new Phaser.Game(config)
       setGameLoaded(true)
+      setMatchStatus('playing')
+      
+      console.log('✅ Game loaded successfully!')
 
-      return () => {
-        if (game) {
-          game.destroy(true)
-        }
-      }
     } catch (err) {
-      console.error("Failed to load game:", err)
+      console.error("❌ Failed to load game:", err)
       setError(`Failed to load game: ${err instanceof Error ? err.message : "Unknown error"}`)
     }
-  }
+  }, [updateGameStats])
+
+  // UPDATED: Enhanced data recovery from multiple sources
+  useEffect(() => {
+    console.log('🎮 Game page mounted, checking for existing game data...')
+    
+    try {
+      // Try multiple data sources in order of preference
+      let gameDataSource = null
+      let parsedGameData: GameData | null = null
+
+      // 1. Check window.gameData first (most recent)
+      if (typeof window !== 'undefined' && window.gameData) {
+        console.log('📦 Found game data in window.gameData')
+        parsedGameData = window.gameData
+        gameDataSource = 'window.gameData'
+      }
+      
+      // 2. Check window.gameBackup
+      else if (typeof window !== 'undefined' && window.gameBackup?.gameData) {
+        console.log('📦 Found game data in window.gameBackup')
+        parsedGameData = window.gameBackup.gameData
+        gameDataSource = 'window.gameBackup'
+      }
+      
+      // 3. Check sessionStorage
+      else {
+        const sessionData = sessionStorage.getItem('gameData')
+        if (sessionData) {
+          console.log('📦 Found game data in sessionStorage')
+          parsedGameData = JSON.parse(sessionData)
+          gameDataSource = 'sessionStorage'
+        }
+      }
+
+      // 4. Check localStorage as last resort
+      if (!parsedGameData) {
+        const storedGameData = localStorage.getItem('gameData')
+        if (storedGameData) {
+          console.log('📦 Found game data in localStorage')
+          parsedGameData = JSON.parse(storedGameData)
+          gameDataSource = 'localStorage'
+        }
+      }
+
+      if (!parsedGameData) {
+        console.log('❌ No game data found, redirecting to bird selection...')
+        setError("No game data found. Please go through bird selection first.")
+        return
+      }
+
+      console.log(`📦 Using game data from ${gameDataSource}:`, parsedGameData)
+      
+      if (!parsedGameData.gameReady || !parsedGameData.matchData) {
+        console.log('❌ Invalid game data, redirecting...')
+        setError("Invalid game data. Please restart the game.")
+        return
+      }
+
+      setGameData(parsedGameData)
+      setMatchStatus('connecting')
+
+      // UPDATED: Enhanced socket preservation logic  
+      const preservedSocket = (typeof window !== 'undefined' && window.gameSocket) || 
+                             (typeof window !== 'undefined' && window.gameBackup?.socket)
+      
+      if (preservedSocket && preservedSocket.connected) {
+        console.log('✅ Using preserved socket connection from bird selection')
+        socketRef.current = preservedSocket
+        
+        // DON'T clear global references immediately - keep them for Strict Mode
+        setupGameEventHandlers(preservedSocket, parsedGameData)
+        
+        preservedSocket.emit('joinGameRoom', {
+          roomId: parsedGameData.matchData.roomId,
+          playerNumber: parsedGameData.matchData.playerNumber,
+          playerName: localStorage.getItem("playerName") || "Player"
+        })
+        
+      } else {
+        console.log('🔌 No preserved socket, creating new connection...')
+        
+        socketRef.current = io(process.env.NODE_ENV === 'production' 
+          ? process.env.NEXTAUTH_URL || window.location.origin
+          : 'http://localhost:3001', {
+          transports: ['websocket', 'polling'],
+          forceNew: false,
+          reconnection: true,
+          timeout: 10000
+        })
+
+        const socket = socketRef.current
+
+        socket.on('connect', () => {
+          console.log('✅ Connected to server:', socket.id)
+          
+          socket.emit('joinGameRoom', {
+            roomId: parsedGameData.matchData.roomId,
+            playerNumber: parsedGameData.matchData.playerNumber,
+            playerName: localStorage.getItem("playerName") || "Player"
+          })
+        })
+
+        setupGameEventHandlers(socket, parsedGameData)
+      }
+
+    } catch (err) {
+      console.error('❌ Error loading game:', err)
+      setError("Failed to load game data")
+    }
+
+    return () => {
+      console.log('🧹 Cleaning up game page...')
+      if (socketRef.current) {
+        socketRef.current.disconnect()
+      }
+      if (gameInstanceRef.current) {
+        try {
+          gameInstanceRef.current.destroy(true)
+        } catch (e) {
+          console.warn('Error destroying game instance:', e)
+        }
+        gameInstanceRef.current = null
+      }
+      // FIXED: Don't clear data on cleanup - let it persist for Strict Mode
+      // Only clear localStorage, keep window and sessionStorage for backup
+      localStorage.removeItem('gameData')
+    }
+  }, [])
+
+  // NEW: Separate function to set up game event handlers
+  const setupGameEventHandlers = useCallback((socket: Socket, gameData: GameData) => {
+    // Handle game events
+    socket.on('gameJoined', (data) => {
+      console.log('✅ Joined game room successfully:', data)
+      setMatchStatus('playing')
+      
+      // Start the game
+      setTimeout(() => {
+        loadGame(gameData)
+      }, 1000)
+    })
+
+    socket.on('opponentMove', (data) => {
+      if (window.gameScene) {
+        const { action, x, y, velocityX, velocityY } = data
+        if (action === 'move') {
+          const opponentPlayer = gameData.matchData.playerNumber === 1 ? window.gameScene.player2 : window.gameScene.player1
+          if (opponentPlayer) {
+            opponentPlayer.setPosition(x, y)
+            opponentPlayer.setVelocity(velocityX, velocityY)
+          }
+        }
+      }
+    })
+
+    socket.on('abilityUsed', (data) => {
+      if (window.gameScene) {
+        const { playerNumber, ability, target } = data
+        if (playerNumber !== gameData.matchData.playerNumber) {
+          window.gameScene.handleOpponentAbility(ability, target)
+        }
+      }
+    })
+
+    socket.on('healthUpdate', (data) => {
+      updateGameStats((prev) => ({
+        ...prev,
+        player1HP: data.player1HP,
+        player2HP: data.player2HP,
+      }))
+      
+      // Update game objects HP
+      if (window.gameScene) {
+        if (window.gameScene.player1) window.gameScene.player1.hp = data.player1HP
+        if (window.gameScene.player2) window.gameScene.player2.hp = data.player2HP
+      }
+    })
+
+    socket.on('gameOver', (data) => {
+      console.log('🏁 Game over:', data)
+      if (window.gameScene) {
+        const isWinner = data.winner === gameData.matchData.playerNumber
+        window.gameScene.endGame(
+          isWinner ? "You Win!" : "You Lose!",
+          data.reason || "Game ended"
+        )
+      }
+      setMatchStatus('ended')
+    })
+
+    socket.on('opponentDisconnected', () => {
+      console.log('❌ Opponent disconnected')
+      if (window.gameScene) {
+        window.gameScene.endGame("You Win!", "Opponent disconnected")
+      }
+      setMatchStatus('ended')
+    })
+
+    socket.on('roomNotFound', () => {
+      console.log('❌ Room not found')
+      setError("Game room not found. The match may have expired.")
+    })
+
+    socket.on('error', (data) => {
+      console.error('❌ Socket error:', data)
+      setError(data.message || "Connection error occurred")
+    })
+
+    socket.on('connect_error', (error) => {
+      console.error('❌ Connection error:', error)
+      setError(`Connection failed: ${error.message}`)
+    })
+  }, [updateGameStats, loadGame])
 
   const handleBackToMenu = () => {
     if (socketRef.current) {
       socketRef.current.disconnect()
     }
+    if (gameInstanceRef.current) {
+      try {
+        gameInstanceRef.current.destroy(true)
+      } catch (e) {
+        console.warn('Error destroying game instance:', e)
+      }
+    }
+    localStorage.removeItem('gameData')
     window.location.href = "/"
   }
 
@@ -800,47 +987,39 @@ export default function GamePage() {
       <div className="min-h-screen bg-gradient-to-b from-sky-400 via-sky-300 to-green-400 flex items-center justify-center p-4">
         <Card className="max-w-md w-full p-8 bg-white/90 backdrop-blur-sm">
           <div className="text-center space-y-4">
+            <div className="text-6xl">❌</div>
             <h2 className="text-2xl font-bold text-red-600">Game Error</h2>
             <p className="text-gray-700">{error}</p>
-            <Button onClick={handleBackToMenu} className="w-full">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Menu
-            </Button>
+            <div className="space-y-2">
+              <Button onClick={() => window.location.href = "/bird-selection"} className="w-full">
+                🔄 Go to Bird Selection
+              </Button>
+              <Button onClick={handleBackToMenu} variant="outline" className="w-full">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Menu
+              </Button>
+            </div>
           </div>
         </Card>
       </div>
     )
   }
 
-  if (matchStatus === 'searching') {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-purple-600 via-blue-600 to-blue-800 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full p-8 bg-white/90 backdrop-blur-sm">
-          <div className="text-center space-y-4">
-            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mx-auto"></div>
-            <h2 className="text-2xl font-bold text-gray-800">Finding Opponent</h2>
-            <p className="text-gray-600">Looking for another player to battle...</p>
-            <Button onClick={handleBackToMenu} variant="outline" className="w-full mt-4">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Cancel & Back to Menu
-            </Button>
-          </div>
-        </Card>
-      </div>
-    )
-  }
-
-  if (matchStatus === 'found') {
+  if (matchStatus === 'loading' || matchStatus === 'connecting') {
     return (
       <div className="min-h-screen bg-gradient-to-b from-green-600 via-blue-600 to-purple-600 flex items-center justify-center p-4">
         <Card className="max-w-md w-full p-8 bg-white/90 backdrop-blur-sm">
           <div className="text-center space-y-4">
-            <div className="text-6xl">⚔️</div>
-            <h2 className="text-2xl font-bold text-gray-800">Match Found!</h2>
+            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mx-auto"></div>
+            <h2 className="text-2xl font-bold text-gray-800">
+              {matchStatus === 'loading' ? 'Loading Game Data...' : 'Connecting to Battle...'}
+            </h2>
             <p className="text-gray-600">
-              You will battle against <span className="font-bold text-purple-600">{matchData?.opponent}</span>
+              {matchStatus === 'loading' 
+                ? 'Preparing your battle arena...' 
+                : `Joining battle against ${gameData?.matchData.opponent}...`
+              }
             </p>
-            <p className="text-sm text-gray-500">Starting game...</p>
           </div>
         </Card>
       </div>
@@ -856,23 +1035,24 @@ export default function GamePage() {
         </div>
       )}
 
+      {/* Always render game container */}
       <div
         ref={gameRef}
         className="border-4 border-white rounded-lg shadow-2xl"
         style={{ width: "1200px", height: "600px" }}
       />
 
-      {gameLoaded && (
+      {gameLoaded && gameData && (
         <div className="mt-4 grid grid-cols-2 gap-4 text-white text-center">
           <div className="bg-red-600/80 p-2 rounded">
             <p className="font-bold">
-              {matchData?.playerNumber === 1 ? "You" : matchData?.opponent}: {gameStats.player1HP} HP
+              {gameData.matchData.playerNumber === 1 ? "You" : gameData.matchData.opponent}: {gameStats.player1HP} HP
             </p>
             <p>Score: {gameStats.player1Score}</p>
           </div>
           <div className="bg-blue-600/80 p-2 rounded">
             <p className="font-bold">
-              {matchData?.playerNumber === 2 ? "You" : matchData?.opponent}: {gameStats.player2HP} HP
+              {gameData.matchData.playerNumber === 2 ? "You" : gameData.matchData.opponent}: {gameStats.player2HP} HP
             </p>
             <p>Score: {gameStats.player2Score}</p>
           </div>
@@ -886,10 +1066,11 @@ export default function GamePage() {
         </Button>
       </div>
 
-      {gameLoaded && (
+      {gameLoaded && gameData && (
         <div className="mt-4 text-white text-center text-sm">
           <p>🎮 Use WASD to move, Q/E/C/X for abilities</p>
-          <p>⚔️ Real multiplayer battle against {matchData?.opponent}!</p>
+          <p>⚔️ Real multiplayer battle against {gameData.matchData.opponent}!</p>
+          <p>🐦 Your bird: {gameData.selectedBird} vs {gameData.opponentBird}</p>
         </div>
       )}
     </div>
@@ -900,5 +1081,8 @@ export default function GamePage() {
 declare global {
   interface Window {
     gameScene?: any
+    gameSocket?: any
+    gameData?: any
+    gameBackup?: any
   }
 }

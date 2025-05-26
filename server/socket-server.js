@@ -326,6 +326,109 @@ io.on("connection", (socket) => {
     }
   })
 
+  // FIXED: Handle joining existing game room with reconstruction
+  socket.on("joinGameRoom", (data) => {
+    const { roomId, playerNumber, playerName } = data
+    
+    if (!roomId || !playerNumber || !playerName) {
+      socket.emit("error", { message: "Invalid game join data" })
+      return
+    }
+
+    let room = gameRooms.get(roomId)
+    
+    if (!room) {
+      console.log(`❌ Room ${roomId} not found, attempting reconstruction...`)
+      
+      // ADDED: Try to reconstruct room for valid players
+      if (roomId.startsWith('room_') && playerNumber >= 1 && playerNumber <= 2) {
+        console.log(`🔧 Reconstructing room ${roomId} for ${playerName}`)
+        
+        room = {
+          players: [
+            { 
+              id: playerNumber === 1 ? socket.id : 'unknown', 
+              name: playerNumber === 1 ? playerName : 'Opponent',
+              socket: playerNumber === 1 ? socket : null
+            },
+            { 
+              id: playerNumber === 2 ? socket.id : 'unknown', 
+              name: playerNumber === 2 ? playerName : 'Opponent',
+              socket: playerNumber === 2 ? socket : null
+            }
+          ],
+          gameState: {
+            player1: { 
+              hp: 100, 
+              score: 0, 
+              bird: null, 
+              isReady: true, // Assume ready since coming from bird selection
+              name: playerNumber === 1 ? playerName : 'Opponent'
+            },
+            player2: { 
+              hp: 100, 
+              score: 0, 
+              bird: null, 
+              isReady: true,
+              name: playerNumber === 2 ? playerName : 'Opponent'
+            },
+            pipes: [],
+            gameStarted: true, // Game should start immediately
+            gameOver: false,
+          },
+        }
+        
+        gameRooms.set(roomId, room)
+        console.log(`✅ Reconstructed room ${roomId}`)
+      } else {
+        socket.emit("roomNotFound")
+        return
+      }
+    }
+
+    // UPDATED: More flexible player matching
+    let playerIndex = room.players.findIndex(p => p.id === socket.id)
+    
+    if (playerIndex === -1) {
+      // Try to find by player number or name
+      playerIndex = room.players.findIndex(p => 
+        p.name === playerName || 
+        (playerNumber === 1 && room.players.indexOf(p) === 0) ||
+        (playerNumber === 2 && room.players.indexOf(p) === 1)
+      )
+      
+      if (playerIndex === -1) {
+        // Assign to correct slot based on playerNumber
+        playerIndex = playerNumber - 1
+      }
+      
+      // Update player info
+      if (room.players[playerIndex]) {
+        room.players[playerIndex].id = socket.id
+        room.players[playerIndex].socket = socket
+        room.players[playerIndex].name = playerName
+      }
+    }
+
+    // Join the room
+    socket.join(roomId)
+    
+    console.log(`✅ Player ${playerName} joined game room ${roomId} as player ${playerNumber}`)
+    
+    socket.emit("gameJoined", {
+      roomId,
+      playerNumber,
+      gameState: room.gameState
+    })
+
+    // Notify other players in room
+    socket.to(roomId).emit("playerJoined", {
+      playerNumber,
+      playerName
+    })
+  })
+
+  // UPDATED: Don't immediately delete rooms on disconnect
   socket.on("disconnect", () => {
     console.log("Player disconnected:", socket.id)
 
@@ -341,11 +444,26 @@ io.on("connection", (socket) => {
       const playerIndex = room.players.findIndex(p => p.id === socket.id)
       if (playerIndex !== -1) {
         const disconnectedPlayerName = room.gameState[playerIndex === 0 ? 'player1' : 'player2'].name
-        console.log(`${disconnectedPlayerName} disconnected from room ${roomId}`)
-        socket.to(roomId).emit("opponentDisconnected", {
-          disconnectedPlayer: disconnectedPlayerName
-        })
-        gameRooms.delete(roomId)
+        console.log(`❌ ${disconnectedPlayerName} disconnected from room ${roomId}`)
+        
+        // CHANGED: Mark player as disconnected instead of deleting room immediately
+        room.players[playerIndex].id = 'disconnected'
+        room.players[playerIndex].socket = null
+        
+        // Give players 30 seconds to reconnect before notifying opponent
+        setTimeout(() => {
+          const currentRoom = gameRooms.get(roomId)
+          if (currentRoom && currentRoom.players[playerIndex].id === 'disconnected') {
+            // Player didn't reconnect, notify opponent and clean up
+            socket.to(roomId).emit("opponentDisconnected", {
+              disconnectedPlayer: disconnectedPlayerName
+            })
+            
+            console.log(`🗑️ Terminating room ${roomId} due to player timeout`)
+            gameRooms.delete(roomId)
+          }
+        }, 30000) // 30 second grace period
+        
         break
       }
     }
