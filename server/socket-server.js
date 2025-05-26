@@ -13,7 +13,8 @@ const io = new Server(httpServer, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  allowEIO3: true
 })
 
 // Game rooms and player management
@@ -23,24 +24,20 @@ const waitingPlayers = []
 io.on("connection", (socket) => {
   console.log("Player connected:", socket.id)
 
-  // Handle matchmaking
   socket.on("findMatch", (playerData) => {
     console.log("Player looking for match:", playerData)
 
-    // Validate player data
     if (!playerData?.name || typeof playerData.name !== 'string') {
       socket.emit("error", { message: "Invalid player data" })
       return
     }
 
-    // Check if player is already in queue
     const existingPlayer = waitingPlayers.find(p => p.id === socket.id)
     if (existingPlayer) {
       socket.emit("error", { message: "Already in matchmaking queue" })
       return
     }
 
-    // Add to waiting queue
     waitingPlayers.push({
       id: socket.id,
       name: playerData.name.trim(),
@@ -49,54 +46,66 @@ io.on("connection", (socket) => {
 
     socket.emit("queueJoined", { position: waitingPlayers.length })
 
-    // Try to match players
     if (waitingPlayers.length >= 2) {
       const player1 = waitingPlayers.shift()
       const player2 = waitingPlayers.shift()
 
       const roomId = `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
 
-      // Create game room
+      // Enhanced game state to track ready status
       gameRooms.set(roomId, {
         players: [player1, player2],
         gameState: {
-          player1: { hp: 100, score: 0, bird: null },
-          player2: { hp: 100, score: 0, bird: null },
+          player1: { 
+            hp: 100, 
+            score: 0, 
+            bird: null, 
+            isReady: false,
+            name: player1.name // ADDED: Store player name in game state
+          },
+          player2: { 
+            hp: 100, 
+            score: 0, 
+            bird: null, 
+            isReady: false,
+            name: player2.name // ADDED: Store player name in game state
+          },
           pipes: [],
           gameStarted: false,
           gameOver: false,
         },
       })
 
-      // Join players to room
       player1.socket.join(roomId)
       player2.socket.join(roomId)
 
-      // Notify players of match found
+      // FIXED: Send correct names to each player
       player1.socket.emit("matchFound", {
         roomId,
-        opponent: player2.name,
+        opponent: player2.name, // Player 1 sees Player 2's name as opponent
         playerNumber: 1,
+        myName: player1.name // Player 1 sees their own name
       })
 
       player2.socket.emit("matchFound", {
         roomId,
-        opponent: player1.name,
+        opponent: player1.name, // Player 2 sees Player 1's name as opponent
         playerNumber: 2,
+        myName: player2.name // Player 2 sees their own name
       })
 
-      console.log(`Match created: ${roomId} with ${player1.name} vs ${player2.name}`)
+      console.log(`Match created: ${roomId} with ${player1.name} (Player 1) vs ${player2.name} (Player 2)`)
     }
   })
 
-  // Handle bird selection
+  // UPDATED: Bird selection with stealing mechanism
   socket.on("selectBird", (data) => {
     if (!data?.roomId || !data?.birdId) {
       socket.emit("error", { message: "Invalid bird selection data" })
       return
     }
 
-    const { roomId, birdId } = data
+    const { roomId, birdId, playerNumber, isLocked, timestamp } = data
     const room = gameRooms.get(roomId)
 
     if (!room) {
@@ -111,25 +120,131 @@ io.on("connection", (socket) => {
     }
 
     const playerKey = playerIndex === 0 ? "player1" : "player2"
-    room.gameState[playerKey].bird = birdId
+    const opponentKey = playerIndex === 0 ? "player2" : "player1"
+    
+    // Check if opponent has this bird locked
+    if (room.gameState[opponentKey].bird === birdId && room.gameState[opponentKey].isReady) {
+      socket.emit("error", { message: "Bird is locked by opponent" })
+      return
+    }
 
-    // Notify room of selection
+    // Check if we're stealing from opponent
+    let stolenFrom = null
+    if (room.gameState[opponentKey].bird === birdId && !room.gameState[opponentKey].isReady) {
+      stolenFrom = playerIndex === 0 ? 2 : 1
+      console.log(`Player ${playerIndex + 1} stole bird ${birdId} from Player ${stolenFrom}`)
+      
+      // Clear opponent's bird
+      room.gameState[opponentKey].bird = null
+      
+      // Notify about theft
+      io.to(roomId).emit("birdStolen", {
+        birdId,
+        fromPlayer: stolenFrom,
+        toPlayer: playerIndex + 1,
+        timestamp
+      })
+    }
+
+    // Clear any previous bird selection by this player
+    if (room.gameState[playerKey].bird && room.gameState[playerKey].bird !== birdId) {
+      console.log(`Player ${playerIndex + 1} changed from ${room.gameState[playerKey].bird} to ${birdId}`)
+    }
+
+    // Set new bird selection
+    room.gameState[playerKey].bird = birdId
+    room.gameState[playerKey].isReady = isLocked
+
+    // Notify all players about bird selection
     io.to(roomId).emit("birdSelected", {
       playerNumber: playerIndex + 1,
       birdId,
+      isLocked,
+      timestamp
     })
 
-    // Check if both players have selected birds
-    if (room.gameState.player1.bird && room.gameState.player2.bird) {
+    console.log(`Player ${playerIndex + 1} (${room.gameState[playerKey].name}) ${isLocked ? 'locked' : 'selected'} bird: ${birdId}`)
+
+    // Check if both players are ready (locked their birds)
+    if (room.gameState.player1.bird && room.gameState.player2.bird && 
+        room.gameState.player1.isReady && room.gameState.player2.isReady && 
+        !room.gameState.gameStarted) {
+      
+      console.log(`Starting game in room ${roomId} - both players ready and locked!`)
+      
       room.gameState.gameStarted = true
+      
       io.to(roomId).emit("gameStart", {
         player1Bird: room.gameState.player1.bird,
-        player2Bird: room.gameState.player2.bird
+        player2Bird: room.gameState.player2.bird,
+        player1Name: room.gameState.player1.name,
+        player2Name: room.gameState.player2.name,
+        ready: true
       })
+
+      console.log(`🚀 Game started: ${roomId} with ${room.gameState.player1.name} (${room.gameState.player1.bird}) vs ${room.gameState.player2.name} (${room.gameState.player2.bird})`)
     }
   })
 
-  // Handle game actions
+  // Handle player ready status
+  socket.on("playerReady", (data) => {
+    if (!data?.roomId || !data?.birdId) {
+      socket.emit("error", { message: "Invalid ready data" })
+      return
+    }
+
+    const { roomId, birdId, playerNumber, isReady } = data
+    const room = gameRooms.get(roomId)
+
+    if (!room) {
+      socket.emit("error", { message: "Room not found" })
+      return
+    }
+
+    const playerIndex = room.players.findIndex(p => p.id === socket.id)
+    if (playerIndex === -1) {
+      socket.emit("error", { message: "Player not in room" })
+      return
+    }
+
+    const playerKey = playerIndex === 0 ? "player1" : "player2"
+    
+    // Update player ready status and ensure bird is set
+    room.gameState[playerKey].isReady = isReady
+    room.gameState[playerKey].bird = birdId
+
+    console.log(`Player ${playerIndex + 1} (${room.gameState[playerKey].name}) ready status: ${isReady} with bird: ${birdId} in room ${roomId}`)
+
+    // Notify all players about ready status
+    io.to(roomId).emit("playerReady", {
+      playerNumber: playerIndex + 1,
+      isReady: isReady,
+      playerName: room.gameState[playerKey].name
+    })
+
+    // Only start game when BOTH players are ready AND have birds
+    const player1Ready = room.gameState.player1.isReady && room.gameState.player1.bird
+    const player2Ready = room.gameState.player2.isReady && room.gameState.player2.bird
+
+    if (player1Ready && player2Ready && !room.gameState.gameStarted) {
+      console.log(`Starting game in room ${roomId} - both players ready!`)
+      console.log(`Player 1 (${room.gameState.player1.name}): ${room.gameState.player1.bird} - Ready: ${room.gameState.player1.isReady}`)
+      console.log(`Player 2 (${room.gameState.player2.name}): ${room.gameState.player2.bird} - Ready: ${room.gameState.player2.isReady}`)
+      
+      room.gameState.gameStarted = true
+      
+      io.to(roomId).emit("gameStart", {
+        player1Bird: room.gameState.player1.bird,
+        player2Bird: room.gameState.player2.bird,
+        player1Name: room.gameState.player1.name,
+        player2Name: room.gameState.player2.name,
+        ready: true // Safety flag
+      })
+
+      console.log(`🚀 Game started: ${roomId} with ${room.gameState.player1.name} (${room.gameState.player1.bird}) vs ${room.gameState.player2.name} (${room.gameState.player2.bird})`)
+    }
+  })
+
   socket.on("gameAction", (data) => {
     if (!data?.roomId || !data?.action) {
       socket.emit("error", { message: "Invalid game action data" })
@@ -139,30 +254,17 @@ io.on("connection", (socket) => {
     const { roomId, action, payload } = data
     const room = gameRooms.get(roomId)
 
-    if (!room) {
-      socket.emit("error", { message: "Room not found" })
+    if (!room || !room.gameState.gameStarted || room.gameState.gameOver) {
       return
     }
 
-    if (!room.gameState.gameStarted) {
-      socket.emit("error", { message: "Game not started" })
-      return
-    }
-
-    if (room.gameState.gameOver) {
-      socket.emit("error", { message: "Game is over" })
-      return
-    }
-
-    // Process action
     switch (action) {
       case "move":
-        // Broadcast movement to other player
+        // Forward movement to opponent
         socket.to(roomId).emit("opponentMove", payload)
         break
 
       case "ability":
-        // Process ability use
         const playerIndex = room.players.findIndex(p => p.id === socket.id)
         if (playerIndex !== -1) {
           io.to(roomId).emit("abilityUsed", {
@@ -174,13 +276,10 @@ io.on("connection", (socket) => {
         break
 
       case "damage":
-        // Validate damage payload
-        if (typeof payload?.target !== 'number' || typeof payload?.amount !== 'number' || payload.amount < 0) {
-          socket.emit("error", { message: "Invalid damage data" })
+        if (typeof payload?.target !== 'number' || typeof payload?.amount !== 'number') {
           return
         }
 
-        // Apply damage
         const targetPlayer = payload.target === 1 ? "player1" : "player2"
         if (room.gameState[targetPlayer]) {
           room.gameState[targetPlayer].hp = Math.max(0, room.gameState[targetPlayer].hp - payload.amount)
@@ -190,27 +289,27 @@ io.on("connection", (socket) => {
             player2HP: room.gameState.player2.hp,
           })
 
-          // Check for game over
           if (room.gameState[targetPlayer].hp <= 0) {
             const winner = payload.target === 1 ? 2 : 1
+            const winnerName = winner === 1 ? room.gameState.player1.name : room.gameState.player2.name
+            const loserName = winner === 1 ? room.gameState.player2.name : room.gameState.player1.name
+            
             room.gameState.gameOver = true
             io.to(roomId).emit("gameOver", {
               winner,
+              winnerName,
+              loserName,
               reason: "HP depleted",
             })
             
-            // Clean up room after a delay
-            setTimeout(() => {
-              gameRooms.delete(roomId)
-            }, 5000)
+            console.log(`Game over in room ${roomId}: ${winnerName} wins against ${loserName}`)
+            setTimeout(() => gameRooms.delete(roomId), 5000)
           }
         }
         break
 
       case "heal":
-        // Handle healing
-        if (typeof payload?.target !== 'number' || typeof payload?.amount !== 'number' || payload.amount < 0) {
-          socket.emit("error", { message: "Invalid heal data" })
+        if (typeof payload?.target !== 'number' || typeof payload?.amount !== 'number') {
           return
         }
 
@@ -224,70 +323,105 @@ io.on("connection", (socket) => {
           })
         }
         break
-
-      default:
-        socket.emit("error", { message: "Unknown action" })
     }
   })
 
-  // Handle disconnection
   socket.on("disconnect", () => {
     console.log("Player disconnected:", socket.id)
 
     // Remove from waiting queue
     const waitingIndex = waitingPlayers.findIndex(p => p.id === socket.id)
     if (waitingIndex !== -1) {
-      waitingPlayers.splice(waitingIndex, 1)
-      console.log(`Removed player from queue. Queue length: ${waitingPlayers.length}`)
+      const removedPlayer = waitingPlayers.splice(waitingIndex, 1)[0]
+      console.log(`Removed ${removedPlayer.name} from waiting queue, ${waitingPlayers.length} players remaining`)
     }
 
-    // Handle game room disconnection
+    // Handle disconnection from active games
     for (const [roomId, room] of gameRooms.entries()) {
       const playerIndex = room.players.findIndex(p => p.id === socket.id)
       if (playerIndex !== -1) {
-        console.log(`Player left room: ${roomId}`)
-        
-        // Notify other player of disconnection
-        socket.to(roomId).emit("opponentDisconnected")
-
-        // Clean up room
+        const disconnectedPlayerName = room.gameState[playerIndex === 0 ? 'player1' : 'player2'].name
+        console.log(`${disconnectedPlayerName} disconnected from room ${roomId}`)
+        socket.to(roomId).emit("opponentDisconnected", {
+          disconnectedPlayer: disconnectedPlayerName
+        })
         gameRooms.delete(roomId)
         break
       }
     }
   })
+})
 
-  // Handle errors
-  socket.on("error", (error) => {
-    console.error("Socket error:", error)
+// Function to find available port
+async function findAvailablePort(startPort) {
+  return new Promise((resolve) => {
+    const server = createServer()
+    server.listen(startPort, () => {
+      const port = server.address().port
+      server.close(() => resolve(port))
+    })
+    server.on('error', () => {
+      resolve(findAvailablePort(startPort + 1))
+    })
   })
-})
+}
 
-const PORT = process.env.SOCKET_PORT || 3001
+// Start server with port handling
+async function startServer() {
+  const preferredPort = process.env.SOCKET_PORT || 3001
+  
+  try {
+    const availablePort = await findAvailablePort(preferredPort)
+    
+    httpServer.listen(availablePort, () => {
+      console.log(`✅ Socket.io server running on port ${availablePort}`)
+      console.log(`🌐 CORS origins: ${process.env.NODE_ENV === 'development' ? '["http://localhost:3000", "http://127.0.0.1:3000"]' : '[production domains]'}`)
+      console.log(`🔗 Connect to: http://localhost:${availablePort}`)
+      console.log(`🎮 Game rooms: 0 active`)
+      console.log(`👥 Waiting players: 0`)
+      
+      if (availablePort !== preferredPort) {
+        console.log(`⚠️  Port ${preferredPort} was in use, using ${availablePort} instead`)
+        console.log(`💡 Update your client to connect to port ${availablePort}`)
+      }
+    })
+  } catch (error) {
+    console.error('❌ Failed to start server:', error)
+    process.exit(1)
+  }
+}
 
-httpServer.listen(PORT, () => {
-  console.log(`Socket.io server running on port ${PORT}`)
-  console.log(`CORS origins: ${process.env.NODE_ENV === 'development' ? '["http://localhost:3000", "http://127.0.0.1:3000"]' : '[production domains]'}`)
-})
+// Start the server
+startServer()
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('Shutting down Socket.io server...')
+  console.log('\n🛑 Shutting down Socket.io server...')
+  console.log(`📊 Final stats: ${gameRooms.size} active rooms, ${waitingPlayers.length} waiting players`)
+  
   io.close(() => {
     httpServer.close(() => {
-      console.log('Server shut down gracefully')
+      console.log('✅ Server shut down gracefully')
       process.exit(0)
     })
   })
 })
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error)
-  process.exit(1)
-})
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
-  process.exit(1)
-})
+// Periodic cleanup of stale rooms
+setInterval(() => {
+  let cleanedRooms = 0
+  const now = Date.now()
+  
+  for (const [roomId, room] of gameRooms.entries()) {
+    // Clean up rooms older than 30 minutes
+    const roomAge = now - parseInt(roomId.split('_')[1])
+    if (roomAge > 30 * 60 * 1000) {
+      gameRooms.delete(roomId)
+      cleanedRooms++
+    }
+  }
+  
+  if (cleanedRooms > 0) {
+    console.log(`🧹 Cleaned up ${cleanedRooms} stale room(s)`)
+  }
+}, 5 * 60 * 1000) // Check every 5 minutes

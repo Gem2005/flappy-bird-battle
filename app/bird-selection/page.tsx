@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle, Lock, Zap, Heart, Gauge, Sword, ArrowLeft } from "lucide-react"
+import { CheckCircle, Lock, Zap, Heart, Gauge, Sword, ArrowLeft, Clock } from "lucide-react"
 import { io, Socket } from "socket.io-client"
 import { useRouter } from "next/navigation"
 
@@ -26,6 +26,15 @@ interface MatchData {
   roomId: string
   opponent: string
   playerNumber: number
+  myName: string
+}
+
+// NEW: Bird selection states
+interface BirdSelectionState {
+  birdId: string | null
+  playerNumber: number | null
+  isLocked: boolean // NEW: Track if bird is locked (ready)
+  timestamp: number // NEW: When bird was selected
 }
 
 const birds: Bird[] = [
@@ -105,60 +114,161 @@ export default function BirdSelectionPage() {
   const [matchData, setMatchData] = useState<MatchData | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'searching' | 'found' | 'selecting' | 'ready'>('connecting')
   const [error, setError] = useState<string | null>(null)
+  const [queuePosition, setQueuePosition] = useState<number | null>(null)
+  
+  // NEW: Track bird selection states
+  const [birdSelections, setBirdSelections] = useState<Map<string, BirdSelectionState>>(new Map())
 
-  useEffect(() => {
-    const name = localStorage.getItem("playerName") || "Player"
-    setPlayerName(name)
-
-    // Connect to Socket.io server
-    socketRef.current = io(process.env.NODE_ENV === 'production' 
-      ? process.env.NEXTAUTH_URL || window.location.origin
-      : 'http://localhost:3001', {
-      transports: ['websocket', 'polling']
-    })
-
-    const socket = socketRef.current
-
+  // Memoize socket event handlers to prevent re-creation
+  const setupSocketEvents = useCallback((socket: Socket) => {
     socket.on('connect', () => {
-      console.log('Connected to server:', socket.id)
+      console.log('✅ Connected to server:', socket.id)
       setConnectionStatus('searching')
-      // Start looking for a match
+      setError(null)
+      const name = localStorage.getItem("playerName") || "Player"
       socket.emit('findMatch', { name })
     })
 
-    socket.on('queueJoined', (data) => {
-      console.log('Joined queue, position:', data.position)
-      setConnectionStatus('searching')
+    socket.on('connect_error', (error) => {
+      console.error('❌ Connection error:', error)
+      setError(`Connection failed: ${error.message}. Make sure the Socket.io server is running on port 3001.`)
+      setConnectionStatus('connecting')
     })
 
-    socket.on('matchFound', (data: MatchData) => {
-      console.log('Match found:', data)
-      setMatchData(data)
-      setOpponentName(data.opponent)
-      setConnectionStatus('selecting')
-    })
-
-    socket.on('birdSelected', (data: { playerNumber: number; birdId: string }) => {
-      console.log('Bird selected by player:', data)
-      
-      if (matchData && data.playerNumber !== matchData.playerNumber) {
-        // Opponent selected a bird
-        setOpponentBird(data.birdId)
+    socket.on('disconnect', (reason) => {
+      console.log('❌ Disconnected:', reason)
+      if (reason === 'io server disconnect') {
+        socket.connect()
       }
     })
 
-    socket.on('gameStart', (data: { player1Bird: string; player2Bird: string }) => {
-      console.log('Game starting with birds:', data)
+    socket.on('queueJoined', (data) => {
+      console.log('📝 Joined queue, position:', data.position)
+      setQueuePosition(data.position)
+      setConnectionStatus('searching')
+    })
+
+    socket.on('matchFound', (data: MatchData & { myName?: string }) => {
+      console.log('🎯 Match found:', data)
       
-      // Store match data for the game
-      localStorage.setItem('matchData', JSON.stringify(matchData))
-      localStorage.setItem('selectedBird', selectedBird || 'phoenix')
+      const currentPlayerName = localStorage.getItem("playerName") || "Player"
+      const enhancedMatchData: MatchData = {
+        roomId: data.roomId,
+        opponent: data.opponent,
+        playerNumber: data.playerNumber,
+        myName: data.myName || currentPlayerName
+      }
       
-      // Navigate to game
+      setMatchData(enhancedMatchData)
+      setPlayerName(enhancedMatchData.myName)
+      setOpponentName(data.opponent)
+      setConnectionStatus('selecting')
+      setQueuePosition(null)
+      
+      console.log('👥 Names set - Me:', enhancedMatchData.myName, 'Opponent:', data.opponent)
+    })
+
+    // UPDATED: Handle bird selection with temporary reservation
+    socket.on('birdSelected', (data: { playerNumber: number; birdId: string; isLocked: boolean; timestamp: number }) => {
+      console.log('🐦 Bird selected by player:', data)
+      
+      setBirdSelections(currentSelections => {
+        const newSelections = new Map(currentSelections)
+        
+        // Remove any previous selection by this player
+        for (const [birdId, selection] of newSelections.entries()) {
+          if (selection.playerNumber === data.playerNumber) {
+            newSelections.delete(birdId)
+          }
+        }
+        
+        // Add new selection
+        newSelections.set(data.birdId, {
+          birdId: data.birdId,
+          playerNumber: data.playerNumber,
+          isLocked: data.isLocked,
+          timestamp: data.timestamp
+        })
+        
+        return newSelections
+      })
+      
+      setMatchData(currentMatchData => {
+        if (currentMatchData && data.playerNumber !== currentMatchData.playerNumber) {
+          // Opponent selected/locked a bird
+          setOpponentBird(data.birdId)
+          setOpponentReady(data.isLocked)
+          console.log('🐦 Opponent', data.isLocked ? 'locked' : 'selected', 'bird:', data.birdId)
+        }
+        return currentMatchData
+      })
+    })
+
+    // Handle player ready status
+    socket.on('playerReady', (data: { playerNumber: number; isReady: boolean }) => {
+      console.log('✅ Player ready status:', data)
+      
+      setMatchData(currentMatchData => {
+        if (currentMatchData && data.playerNumber !== currentMatchData.playerNumber) {
+          setOpponentReady(data.isReady)
+          console.log('✅ Opponent ready status:', data.isReady)
+        }
+        return currentMatchData
+      })
+    })
+
+    // NEW: Handle bird theft/steal events
+    socket.on('birdStolen', (data: { birdId: string; fromPlayer: number; toPlayer: number; timestamp: number }) => {
+      console.log('🥷 Bird stolen:', data)
+      
+      setMatchData(currentMatchData => {
+        if (currentMatchData) {
+          if (data.fromPlayer === currentMatchData.playerNumber) {
+            // My bird was stolen
+            setSelectedBird(null)
+            console.log('😱 My bird was stolen by opponent!')
+          } else if (data.toPlayer === currentMatchData.playerNumber) {
+            // I stole opponent's bird
+            setSelectedBird(data.birdId)
+            setOpponentBird(null)
+            console.log('😈 I stole opponent\'s bird!')
+          }
+        }
+        return currentMatchData
+      })
+    })
+
+    socket.on('gameStart', (data: { player1Bird: string; player2Bird: string; ready: boolean }) => {
+      console.log('🚀 Game starting with birds:', data)
+      
+      if (!data.ready) {
+        console.log('⚠️ Game start received but not ready - ignoring')
+        return
+      }
+      
+      setMatchData(currentMatchData => {
+        if (currentMatchData) {
+          localStorage.setItem('matchData', JSON.stringify(currentMatchData))
+        }
+        return currentMatchData
+      })
+      
+      setSelectedBird(currentBird => {
+        if (currentBird) {
+          localStorage.setItem('selectedBird', currentBird)
+        }
+        return currentBird
+      })
+      
       router.push('/game')
     })
 
+    socket.on('bothPlayersSelected', (data) => {
+      console.log('📝 Both players have selected birds, but waiting for ready status:', data)
+    })
+
     socket.on('opponentDisconnected', () => {
+      console.log('❌ Opponent disconnected')
       setError("Opponent disconnected. Returning to menu...")
       setTimeout(() => {
         router.push('/')
@@ -166,56 +276,136 @@ export default function BirdSelectionPage() {
     })
 
     socket.on('error', (data) => {
-      console.error('Socket error:', data.message)
+      console.error('❌ Socket error:', data.message)
       setError(data.message)
     })
+  }, [router])
+
+  useEffect(() => {
+    const name = localStorage.getItem("playerName") || "Player"
+    setPlayerName(name)
+
+    if (!socketRef.current) {
+      console.log('🔌 Creating new socket connection...')
+      
+      socketRef.current = io(process.env.NODE_ENV === 'production' 
+        ? process.env.NEXTAUTH_URL || window.location.origin
+        : 'http://localhost:3001', {
+        transports: ['websocket', 'polling'],
+        timeout: 10000,
+        forceNew: true,
+        reconnection: true,
+        reconnectionAttempts: 3,
+        reconnectionDelay: 1000,
+      })
+
+      setupSocketEvents(socketRef.current)
+    }
 
     return () => {
-      if (socket) {
-        socket.disconnect()
+      if (socketRef.current) {
+        console.log('🔌 Component unmounting, disconnecting socket...')
+        socketRef.current.disconnect()
+        socketRef.current = null
       }
     }
-  }, [router, matchData, selectedBird])
+  }, [setupSocketEvents])
 
-  const handleBirdSelect = (birdId: string) => {
-    if (!matchData || opponentBird === birdId || selectedBird === birdId) return
+  // UPDATED: Handle bird selection with potential stealing
+  const handleBirdSelect = useCallback((birdId: string) => {
+    if (!matchData || isReady) return
     
+    const currentSelection = birdSelections.get(birdId)
+    
+    // Check if bird is locked by opponent
+    if (currentSelection && currentSelection.isLocked && currentSelection.playerNumber !== matchData.playerNumber) {
+      console.log('🔒 Cannot select locked bird')
+      return
+    }
+    
+    // Allow stealing if bird is only selected (not locked) by opponent
+    if (currentSelection && !currentSelection.isLocked && currentSelection.playerNumber !== matchData.playerNumber) {
+      console.log('🥷 Stealing opponent\'s bird:', birdId)
+    }
+    
+    console.log('🐦 Selecting bird:', birdId)
     setSelectedBird(birdId)
-    setIsReady(false)
     
-    // Send bird selection to server
-    if (socketRef.current) {
+    if (socketRef.current && socketRef.current.connected) {
       socketRef.current.emit('selectBird', {
         roomId: matchData.roomId,
-        birdId: birdId
+        birdId: birdId,
+        playerNumber: matchData.playerNumber,
+        isLocked: false, // Only selected, not locked
+        timestamp: Date.now()
       })
+    } else {
+      setError("Connection lost. Please refresh the page.")
     }
-  }
+  }, [matchData, isReady, birdSelections])
 
-  const handleReady = () => {
-    if (!selectedBird || !matchData) return
+  // UPDATED: Handle ready button - this locks the bird
+  const handleReady = useCallback(() => {
+    if (!selectedBird || !matchData || isReady) return
     
+    console.log('🔒 Locking bird and becoming ready:', selectedBird)
     setIsReady(true)
     setConnectionStatus('ready')
     
-    // Store selected bird
     localStorage.setItem("selectedBird", selectedBird)
     
-    // The game will start automatically when both players are ready
-    // This is handled by the server via the 'gameStart' event
-  }
+    if (socketRef.current && socketRef.current.connected) {
+      // Send both bird lock and ready status
+      socketRef.current.emit('selectBird', {
+        roomId: matchData.roomId,
+        birdId: selectedBird,
+        playerNumber: matchData.playerNumber,
+        isLocked: true, // NOW the bird is locked
+        timestamp: Date.now()
+      })
+      
+      socketRef.current.emit('playerReady', {
+        roomId: matchData.roomId,
+        birdId: selectedBird,
+        playerNumber: matchData.playerNumber,
+        isReady: true
+      })
+    } else {
+      setError("Connection lost. Please refresh the page.")
+    }
+  }, [selectedBird, matchData, isReady])
 
-  const handleBackToMenu = () => {
+  const handleBackToMenu = useCallback(() => {
     if (socketRef.current) {
       socketRef.current.disconnect()
+      socketRef.current = null
     }
     router.push('/')
-  }
+  }, [router])
 
   const getStatColor = (value: number) => {
     if (value >= 90) return "text-green-600"
     if (value >= 75) return "text-yellow-600"
     return "text-red-600"
+  }
+
+  // NEW: Helper function to get bird status
+  const getBirdStatus = (birdId: string) => {
+    const selection = birdSelections.get(birdId)
+    if (!selection || !matchData) return null
+    
+    const isMyBird = selectedBird === birdId
+    const isOpponentBird = selection.playerNumber !== matchData.playerNumber
+    const isLocked = selection.isLocked
+    
+    return {
+      isMyBird,
+      isOpponentBird,
+      isLocked,
+      // UPDATED: Can only steal if I'm not ready AND opponent bird is not locked
+      canSteal: isOpponentBird && !isLocked && !isReady,
+      playerNumber: selection.playerNumber
+    }
   }
 
   // Error state
@@ -227,10 +417,15 @@ export default function BirdSelectionPage() {
             <div className="text-6xl">❌</div>
             <h2 className="text-2xl font-bold text-red-600">Connection Error</h2>
             <p className="text-gray-700">{error}</p>
-            <Button onClick={handleBackToMenu} className="w-full">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Menu
-            </Button>
+            <div className="space-y-2">
+              <Button onClick={() => window.location.reload()} className="w-full bg-blue-600 hover:bg-blue-700">
+                🔄 Retry Connection
+              </Button>
+              <Button onClick={handleBackToMenu} variant="outline" className="w-full">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Menu
+              </Button>
+            </div>
           </div>
         </Card>
       </div>
@@ -249,14 +444,19 @@ export default function BirdSelectionPage() {
             </h2>
             <p className="text-gray-600">
               {connectionStatus === 'connecting' 
-                ? 'Connecting to server...' 
-                : 'Looking for another player to battle...'
+                ? 'Connecting to Socket.io server...' 
+                : `Looking for another player to battle...${queuePosition ? ` (Position in queue: ${queuePosition})` : ''}`
               }
             </p>
-            <Button onClick={handleBackToMenu} variant="outline" className="w-full">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Cancel & Back to Menu
-            </Button>
+            <div className="space-y-2">
+              <Button onClick={() => window.location.reload()} variant="outline" className="w-full">
+                🔄 Refresh Connection
+              </Button>
+              <Button onClick={handleBackToMenu} variant="outline" className="w-full">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Cancel & Back to Menu
+              </Button>
+            </div>
           </div>
         </Card>
       </div>
@@ -286,19 +486,64 @@ export default function BirdSelectionPage() {
           </div>
           
           {/* Connection Status */}
-          <div className="mt-4">
+          <div className="mt-4 space-y-2">
             <Badge variant="outline" className="bg-white/20 text-white">
               Room: {matchData?.roomId ? matchData.roomId.slice(-8) : 'Connecting...'}
             </Badge>
+            {socketRef.current?.connected && (
+              <Badge variant="outline" className="bg-green-500/20 text-white">
+                🟢 Connected to Server
+              </Badge>
+            )}
+          </div>
+
+          {/* NEW: Stealing feature explanation */}
+          <div className="mt-4 bg-white/10 backdrop-blur-sm rounded-lg p-3">
+            <p className="text-white/90 text-sm">
+              💡 <strong>Tip:</strong> You can steal birds that opponents have selected but not locked. 
+              Lock your bird by clicking READY!
+            </p>
+          </div>
+
+          {/* Status messages */}
+          <div className="mt-4 space-y-2">
+            {selectedBird && opponentBird && (
+              <div className="text-white text-sm space-y-1">
+                <p className="flex items-center justify-center space-x-2">
+                  <span>✅ Both players have selected birds!</span>
+                </p>
+                <p className="text-white/80">
+                  {!isReady && !opponentReady && "Both players need to click READY to start"}
+                  {isReady && !opponentReady && "Waiting for opponent to ready up..."}
+                  {!isReady && opponentReady && "Opponent is ready! Click READY to start"}
+                  {isReady && opponentReady && "🚀 Starting battle..."}
+                </p>
+              </div>
+            )}
+            
+            {selectedBird && !opponentBird && (
+              <p className="text-white/80 text-sm">
+                ⏳ Waiting for opponent to select their bird...
+              </p>
+            )}
+            
+            {!selectedBird && opponentBird && (
+              <p className="text-white/80 text-sm">
+                🐦 Opponent has selected their bird. Choose yours!
+              </p>
+            )}
           </div>
         </div>
 
         {/* Bird Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {birds.map((bird) => {
+            const birdStatus = getBirdStatus(bird.id)
             const isSelected = selectedBird === bird.id
-            const isOpponentSelected = opponentBird === bird.id
-            const isLocked = isOpponentSelected
+            const isOpponentSelected = birdStatus?.isOpponentBird && !birdStatus?.canSteal
+            const canSteal = birdStatus?.canSteal
+            const isLocked = birdStatus?.isLocked && birdStatus?.isOpponentBird
+            const isDisabled = isReady || isLocked
 
             return (
               <Card
@@ -306,11 +551,17 @@ export default function BirdSelectionPage() {
                 className={`p-6 cursor-pointer transition-all duration-200 ${
                   isSelected
                     ? "ring-4 ring-green-500 bg-green-50"
+                    : canSteal
+                      ? "ring-2 ring-orange-400 bg-orange-50 hover:ring-orange-500"
                     : isLocked
+                      ? "opacity-50 cursor-not-allowed bg-gray-100"
+                    : isOpponentSelected
+                      ? "opacity-75 bg-red-50"
+                    : isDisabled
                       ? "opacity-50 cursor-not-allowed bg-gray-100"
                       : "hover:shadow-lg hover:scale-105 bg-white"
                 }`}
-                onClick={() => !isLocked && handleBirdSelect(bird.id)}
+                onClick={() => !isDisabled && handleBirdSelect(bird.id)}
               >
                 {/* Bird Header */}
                 <div className="text-center mb-4">
@@ -321,18 +572,35 @@ export default function BirdSelectionPage() {
                   </div>
                   <h3 className="text-xl font-bold text-gray-800">{bird.name}</h3>
 
-                  {/* Selection Status */}
-                  <div className="mt-2">
+                  {/* UPDATED: Selection Status - hide steal indicators when player is ready */}
+                  <div className="mt-2 space-y-1">
                     {isSelected && (
                       <Badge className="bg-green-500">
                         <CheckCircle className="w-3 h-3 mr-1" />
-                        Selected
+                        {isReady ? "Locked" : "Selected"}
                       </Badge>
                     )}
+                    
+                    {/* UPDATED: Only show steal option if player is not ready */}
+                    {canSteal && !isReady && (
+                      <Badge variant="destructive" className="bg-orange-500">
+                        <Clock className="w-3 h-3 mr-1" />
+                        Can Steal!
+                      </Badge>
+                    )}
+                    
                     {isLocked && (
                       <Badge variant="secondary">
                         <Lock className="w-3 h-3 mr-1" />
-                        Opponent's Pick
+                        Opponent Locked
+                      </Badge>
+                    )}
+                    
+                    {/* UPDATED: Show different message based on player's ready status */}
+                    {birdStatus?.isOpponentBird && !canSteal && !isLocked && (
+                      <Badge variant="secondary" className="bg-red-100">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {isReady ? "Opponent Selected" : "Opponent Selected"}
                       </Badge>
                     )}
                   </div>
@@ -392,25 +660,50 @@ export default function BirdSelectionPage() {
           })}
         </div>
 
-        {/* Action Buttons */}
+        {/* UPDATED: Action Buttons with clearer messaging */}
         <div className="text-center space-y-4">
           <Button
             onClick={handleReady}
             disabled={!selectedBird || isReady}
             size="lg"
-            className="bg-green-600 hover:bg-green-700 text-white font-semibold px-12 py-4 text-xl"
+            className={`font-semibold px-12 py-4 text-xl ${
+              isReady 
+                ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                : "bg-green-600 hover:bg-green-700 text-white"
+            }`}
           >
             {isReady ? (
               <>
-                <CheckCircle className="w-5 h-5 mr-2" />
-                READY - Waiting for opponent...
+                <Lock className="w-5 h-5 mr-2" />
+                LOCKED & READY - Waiting for opponent...
               </>
             ) : selectedBird ? (
-              "READY TO BATTLE"
+              <>
+                <Lock className="w-5 h-5 mr-2" />
+                LOCK BIRD & READY TO BATTLE
+              </>
             ) : (
               "SELECT A BIRD FIRST"
             )}
           </Button>
+
+          {/* UPDATED: Show different tip based on ready status */}
+          {!isReady && (
+            <div className="mt-4 bg-white/10 backdrop-blur-sm rounded-lg p-3">
+              <p className="text-white/90 text-sm">
+                💡 <strong>Tip:</strong> You can steal birds that opponents have selected but not locked. 
+                Lock your bird by clicking READY!
+              </p>
+            </div>
+          )}
+          
+          {isReady && (
+            <div className="mt-4 bg-blue-500/20 backdrop-blur-sm rounded-lg p-3">
+              <p className="text-white/90 text-sm">
+                🔒 <strong>Locked:</strong> Your bird is secured! Waiting for opponent to ready up.
+              </p>
+            </div>
+          )}
 
           <div>
             <Button onClick={handleBackToMenu} variant="outline" className="bg-white/90">
@@ -419,7 +712,8 @@ export default function BirdSelectionPage() {
             </Button>
           </div>
 
-          {isReady && opponentBird && (
+          {/* Only show when both are ready */}
+          {isReady && opponentReady && selectedBird && opponentBird && (
             <p className="text-white font-semibold animate-pulse">
               🚀 Both players ready! Starting battle...
             </p>
