@@ -105,9 +105,71 @@ export default function GamePage() {
       // Get player data
       const playerName = typeof window !== "undefined" 
         ? localStorage.getItem("playerName") || "Player"
-        : "Player"
-
-      // Create Phaser Scene class
+        : "Player"      // Bird data definitions
+      const birds = [
+        {
+          id: "phoenix",
+          name: "Phoenix",
+          hp: 80,
+          speed: 90,
+          attack: 100,
+          color: "from-red-500 to-orange-500",
+          abilities: {
+            normal: { name: "Ember Shot", key: "Q", damage: 10, description: "10 damage projectile" },
+            signature: { name: "Flame Wave", key: "E", effect: "20 AoE", description: "20 AoE damage wave" },
+            ultimate: { name: "Rebirth", key: "X", effect: "Heal 50", description: "Heal 50 HP (once per match)" },
+          },
+        },
+        {
+          id: "frostbeak",
+          name: "Frostbeak",
+          hp: 90,
+          speed: 70,
+          attack: 75,
+          color: "from-blue-500 to-cyan-500",
+          abilities: {
+            normal: { name: "Ice Shard", key: "Q", damage: 8, description: "8 damage + slow effect" },
+            signature: { name: "Blizzard", key: "E", effect: "Obstacle", description: "Creates obstacle for opponent" },
+            ultimate: { name: "Freeze Time", key: "X", effect: "Freeze 3s", description: "Freezes opponent for 3 seconds" },
+          },
+        },
+        {
+          id: "thunderwing",
+          name: "Thunderwing",
+          hp: 70,
+          speed: 100,
+          attack: 80,
+          color: "from-yellow-500 to-purple-500",
+          abilities: {
+            normal: { name: "Shock Bolt", key: "Q", damage: 12, description: "12 damage lightning" },
+            signature: { name: "Wind Gust", key: "E", effect: "Push", description: "Pushes opponent toward obstacles" },
+            ultimate: {
+              name: "Lightning Strike",
+              key: "X",
+              effect: "30 Chain",
+              description: "30 damage, chains to obstacles",
+            },
+          },
+        },
+        {
+          id: "shadowfeather",
+          name: "Shadowfeather",
+          hp: 60,
+          speed: 85,
+          attack: 90,
+          color: "from-purple-500 to-gray-800",
+          abilities: {
+            normal: { name: "Shadow Strike", key: "Q", damage: 15, description: "15 damage stealth attack" },
+            signature: { name: "Vanish", key: "E", effect: "Invuln 2s", description: "2 seconds invulnerability" },
+            ultimate: {
+              name: "Nightmare",
+              key: "X",
+              effect: "Reverse",
+              description: "Reverses controls + disables abilities",
+            },
+          },
+        },
+      ]      // Create Phaser Scene class
       class GameScene extends Phaser.Scene {
         private player1: any
         private player2: any
@@ -118,6 +180,7 @@ export default function GamePage() {
         private player2HPText: any
         private player1ScoreText: any
         private player2ScoreText: any
+        private playerNamesText: any
         private gameOverText: any
         private abilityTexts: any = {}
         private abilityCooldowns = {
@@ -133,6 +196,11 @@ export default function GamePage() {
         private roomId: string
         private selectedBird: string
         private opponentBird: string
+        private myBirdData: any
+        private opponentBirdData: any
+        private playerEffects: any = {}
+        private rebirthUsed = false
+        private effectIndicators: any[] = []
 
         constructor() {
           super({ key: "GameScene" })
@@ -140,6 +208,15 @@ export default function GamePage() {
           this.roomId = gameInfo.matchData.roomId
           this.selectedBird = gameInfo.selectedBird
           this.opponentBird = gameInfo.opponentBird
+          
+          // Find bird data for both players
+          this.myBirdData = birds.find(bird => bird.id === this.selectedBird) || birds[0]
+          this.opponentBirdData = birds.find(bird => bird.id === this.opponentBird) || birds[0]
+          
+          console.log('🐦 Bird data loaded:', {
+            my: this.myBirdData.name,
+            opponent: this.opponentBirdData.name
+          })
         }
 
         preload() {
@@ -200,15 +277,13 @@ export default function GamePage() {
                 .image(Phaser.Math.Between(0, 1200), Phaser.Math.Between(50, 150), "cloud")
                 .setAlpha(0.3)
                 .setScale(0.5)
-            }
-
-            // Create players with physics
+            }            // Create players with physics and bird-specific stats
             this.player1 = this.physics.add.sprite(150, 300, "bird1")
             this.player1.setBounce(0.2)
             this.player1.setCollideWorldBounds(true)
             this.player1.setScale(1.5)
             this.player1.body.setSize(20, 20)
-            this.player1.hp = 100
+            this.player1.hp = this.playerNumber === 1 ? this.myBirdData.hp : this.opponentBirdData.hp
             this.player1.score = 0
 
             this.player2 = this.physics.add.sprite(750, 300, "bird2")
@@ -216,7 +291,7 @@ export default function GamePage() {
             this.player2.setCollideWorldBounds(true)
             this.player2.setScale(1.5)
             this.player2.body.setSize(20, 20)
-            this.player2.hp = 100
+            this.player2.hp = this.playerNumber === 2 ? this.myBirdData.hp : this.opponentBirdData.hp
             this.player2.score = 0
 
             // Create pipe groups
@@ -293,31 +368,29 @@ export default function GamePage() {
               color: "#ffffff",
               stroke: "#000000",
               strokeThickness: 2,
-            })
-
-            // Show ability UI for current player
+            })            // Show ability UI for current player
             const abilityUIX = this.playerNumber === 1 ? 20 : 620
             
-            // Ability cooldown UI
-            this.abilityTexts.q = this.add.text(abilityUIX, 120, "Q: Ready", {
+            // Bird-specific ability cooldown UI
+            this.abilityTexts.q = this.add.text(abilityUIX, 120, `Q - ${this.myBirdData.abilities.normal.name}: Ready`, {
               fontSize: "16px",
               color: "#ffffff",
               stroke: "#000000",
               strokeThickness: 1,
             })
-            this.abilityTexts.e = this.add.text(abilityUIX, 140, "E: Ready", {
+            this.abilityTexts.e = this.add.text(abilityUIX, 140, `E - ${this.myBirdData.abilities.signature.name}: Ready`, {
               fontSize: "16px",
               color: "#ffffff",
               stroke: "#000000",
               strokeThickness: 1,
             })
-            this.abilityTexts.c = this.add.text(abilityUIX, 160, "C: Ready", {
+            this.abilityTexts.c = this.add.text(abilityUIX, 160, "C - Universal Heal: Ready", {
               fontSize: "16px",
               color: "#ffffff",
               stroke: "#000000",
               strokeThickness: 1,
             })
-            this.abilityTexts.x = this.add.text(abilityUIX, 180, "X: Ready", {
+            this.abilityTexts.x = this.add.text(abilityUIX, 180, `X - ${this.myBirdData.abilities.ultimate.name}: Ready`, {
               fontSize: "16px",
               color: "#ffffff",
               stroke: "#000000",
@@ -344,84 +417,80 @@ export default function GamePage() {
           try {
             // Create keyboard input
             this.cursors = this.input.keyboard?.createCursorKeys()
-            this.wasd = this.input.keyboard?.addKeys('W,S,A,D,Q,E,C,X,R,ESC')
+            this.wasd = this.input.keyboard?.addKeys('W,S,A,D,Q,E,C,X,ESC')
 
             // Get the player we should control
-            const myPlayer = this.playerNumber === 1 ? this.player1 : this.player2
-
-            // Movement controls using WASD
+            const myPlayer = this.playerNumber === 1 ? this.player1 : this.player2            // Movement controls using WASD (with nightmare effect support)
             if (this.wasd && myPlayer) {
               this.wasd.W.on('down', () => {
-                if (!this.gameOver && myPlayer) {
-                  myPlayer.setVelocityY(-250)
+                if (!this.gameOver && myPlayer && !this.playerEffects.frozen) {
+                  // Reverse direction if nightmare effect is active
+                  const velocityY = this.playerEffects.nightmare ? 250 : -250
+                  myPlayer.setVelocityY(velocityY)
                   this.showAbilityEffect("↑", myPlayer.x, myPlayer.y - 30)
                   this.sendMovement('move', myPlayer.x, myPlayer.y, myPlayer.body.velocity.x, myPlayer.body.velocity.y)
                 }
               })
 
               this.wasd.S.on('down', () => {
-                if (!this.gameOver && myPlayer) {
-                  myPlayer.setVelocityY(250)
+                if (!this.gameOver && myPlayer && !this.playerEffects.frozen) {
+                  // Reverse direction if nightmare effect is active
+                  const velocityY = this.playerEffects.nightmare ? -250 : 250
+                  myPlayer.setVelocityY(velocityY)
                   this.showAbilityEffect("↓", myPlayer.x, myPlayer.y + 30)
                   this.sendMovement('move', myPlayer.x, myPlayer.y, myPlayer.body.velocity.x, myPlayer.body.velocity.y)
                 }
               })
 
               this.wasd.A.on('down', () => {
-                if (!this.gameOver && myPlayer) {
-                  myPlayer.setVelocityX(-150)
+                if (!this.gameOver && myPlayer && !this.playerEffects.frozen) {
+                  // Reverse direction if nightmare effect is active
+                  const velocityX = this.playerEffects.nightmare ? 150 : -150
+                  myPlayer.setVelocityX(velocityX)
                   this.showAbilityEffect("←", myPlayer.x - 30, myPlayer.y)
                   this.sendMovement('move', myPlayer.x, myPlayer.y, myPlayer.body.velocity.x, myPlayer.body.velocity.y)
                 }
               })
 
               this.wasd.D.on('down', () => {
-                if (!this.gameOver && myPlayer) {
-                  myPlayer.setVelocityX(150)
+                if (!this.gameOver && myPlayer && !this.playerEffects.frozen) {
+                  // Reverse direction if nightmare effect is active
+                  const velocityX = this.playerEffects.nightmare ? -150 : 150
+                  myPlayer.setVelocityX(velocityX)
                   this.showAbilityEffect("→", myPlayer.x + 30, myPlayer.y)
                   this.sendMovement('move', myPlayer.x, myPlayer.y, myPlayer.body.velocity.x, myPlayer.body.velocity.y)
                 }
-              })
-
-              // Ability controls with proper cooldown timers
+              })              // Ability controls with bird-specific cooldowns and effects
               this.wasd.Q.on('down', () => {
-                if (!this.gameOver && this.abilityCooldowns.q <= 0) {
-                  this.useAbility("q", "Ember Shot")
+                if (!this.gameOver && this.abilityCooldowns.q <= 0 && !this.playerEffects.nightmare) {
+                  this.useAbility("q", this.myBirdData.abilities.normal.name)
                   this.startCooldown("q", 6)
                 }
               })
 
               this.wasd.E.on('down', () => {
-                if (!this.gameOver && this.abilityCooldowns.e <= 0) {
-                  this.useAbility("e", "Flame Wave")
+                if (!this.gameOver && this.abilityCooldowns.e <= 0 && !this.playerEffects.nightmare) {
+                  this.useAbility("e", this.myBirdData.abilities.signature.name)
                   this.startCooldown("e", 10)
                 }
               })
 
               this.wasd.C.on('down', () => {
                 if (!this.gameOver && this.abilityCooldowns.c <= 0) {
-                  this.useAbility("c", "Heal")
-                  this.startCooldown("c", 8)
+                  this.useAbility("c", "Universal Heal")
+                  this.startCooldown("c", 10) // 10 second cooldown for universal heal
                 }
               })
 
               this.wasd.X.on('down', () => {
-                if (!this.gameOver && this.abilityCooldowns.x <= 0) {
-                  this.useAbility("x", "Ultimate")
+                if (!this.gameOver && this.abilityCooldowns.x <= 0 && !this.playerEffects.nightmare) {
+                  this.useAbility("x", this.myBirdData.abilities.ultimate.name)
                   this.startCooldown("x", 15)
                 }
-              })
-
-              // Game restart and menu controls
-              this.wasd.R.on('down', () => {
-                if (this.gameOver) {
-                  window.location.reload()
-                }
-              })
-
+              })// Game menu controls
               this.wasd.ESC.on('down', () => {
                 if (this.gameOver) {
-                  window.location.href = "/"
+                  window.location.href = "/matchmaking"
                 }
               })
             }
@@ -438,9 +507,7 @@ export default function GamePage() {
               payload: { action, x, y, velocityX, velocityY }
             })
           }
-        }
-
-        startCooldown(ability: string, seconds: number) {
+        }        startCooldown(ability: string, seconds: number) {
           try {
             this.abilityCooldowns[ability as keyof typeof this.abilityCooldowns] = seconds
             
@@ -448,8 +515,26 @@ export default function GamePage() {
               this.cooldownTimers[ability].remove()
             }
 
+            // Get the correct ability name for display
+            let abilityDisplayName = ability.toUpperCase()
+            if (ability === "c") {
+              abilityDisplayName = "C - Universal Heal"
+            } else if (this.myBirdData) {
+              switch (ability) {
+                case "q":
+                  abilityDisplayName = `Q - ${this.myBirdData.abilities.normal.name}`
+                  break
+                case "e":
+                  abilityDisplayName = `E - ${this.myBirdData.abilities.signature.name}`
+                  break
+                case "x":
+                  abilityDisplayName = `X - ${this.myBirdData.abilities.ultimate.name}`
+                  break
+              }
+            }
+
             if (this.abilityTexts[ability]) {
-              this.abilityTexts[ability].setText(`${ability.toUpperCase()}: ${seconds}s`)
+              this.abilityTexts[ability].setText(`${abilityDisplayName}: ${seconds}s`)
             }
 
             this.cooldownTimers[ability] = this.time.addEvent({
@@ -458,7 +543,7 @@ export default function GamePage() {
                 this.abilityCooldowns[ability as keyof typeof this.abilityCooldowns]--
                 
                 const cooldown = this.abilityCooldowns[ability as keyof typeof this.abilityCooldowns]
-                const text = cooldown > 0 ? `${ability.toUpperCase()}: ${cooldown}s` : `${ability.toUpperCase()}: Ready`
+                const text = cooldown > 0 ? `${abilityDisplayName}: ${cooldown}s` : `${abilityDisplayName}: Ready`
                 
                 if (this.abilityTexts[ability]) {
                   this.abilityTexts[ability].setText(text)
@@ -507,69 +592,316 @@ export default function GamePage() {
             topPipe2.body.setImmovable(true)
             bottomPipe2.body.setImmovable(true)
             topPipe2.side = "right"
-            bottomPipe2.side = "right"
-
-            // Set up collisions
+            bottomPipe2.side = "right"            // Set up collisions with invulnerability check
             this.physics.add.overlap(this.player1, [topPipe1, bottomPipe1], () => {
-              if (!this.gameOver) {
+              if (!this.gameOver && !this.playerEffects.invulnerable) {
                 this.sendGameAction('damage', { target: 1, amount: 100 })
               }
             })
 
             this.physics.add.overlap(this.player2, [topPipe2, bottomPipe2], () => {
-              if (!this.gameOver) {
+              if (!this.gameOver && !this.playerEffects.invulnerable) {
                 this.sendGameAction('damage', { target: 2, amount: 100 })
               }
             })
           } catch (err) {
             console.error("Error in spawnPipes:", err)
           }
-        }
-
-        useAbility(key: string, abilityName: string) {
+        }        useAbility(key: string, abilityName: string) {
           try {
-            // Check if ability can pass through pipes
-            const canPassThroughPipes = this.checkAbilityPath(key)
+            const myPlayer = this.playerNumber === 1 ? this.player1 : this.player2
+            const opponentPlayer = this.playerNumber === 1 ? this.player2 : this.player1
+            const targetPlayer = this.playerNumber === 1 ? 2 : 1
+
+            // Universal C key healing (15 HP, works for all birds)
+            if (key === "c") {
+              this.showAbilityEffect("Universal Heal +15 HP", myPlayer.x, myPlayer.y - 60, "#00ff00")
+              this.sendGameAction('heal', { target: this.playerNumber, amount: 15 })
+              return
+            }
+
+            // Check if ability can pass through pipes (except for certain abilities)
+            const abilitiesThatIgnorePipes = ["vanish", "rebirth", "freeze time", "nightmare"]
+            const canPassThroughPipes = abilitiesThatIgnorePipes.some(ability => 
+              abilityName.toLowerCase().includes(ability)) || this.checkAbilityPath(key)
             
             if (!canPassThroughPipes) {
-              const myPlayer = this.playerNumber === 1 ? this.player1 : this.player2
               this.showAbilityEffect("Blocked by pipe!", myPlayer.x, myPlayer.y - 60, "#ff9900")
               return
             }
 
-            this.showAbilityEffect(abilityName, 600, 250, "#ffff00")
-
-            // Send ability to server
-            let damage = 0
-            let heal = 0
-            const targetPlayer = this.playerNumber === 1 ? 2 : 1
-
-            switch (key) {
-              case "q":
-                damage = 10
+            // Bird-specific abilities based on selected bird
+            switch (this.selectedBird) {
+              case "phoenix":
+                this.handlePhoenixAbilities(key, abilityName, myPlayer, opponentPlayer, targetPlayer)
                 break
-              case "e":
-                damage = 20
+              case "frostbeak":
+                this.handleFrostbeakAbilities(key, abilityName, myPlayer, opponentPlayer, targetPlayer)
                 break
-              case "c":
-                heal = 25
+              case "thunderwing":
+                this.handleThunderwingAbilities(key, abilityName, myPlayer, opponentPlayer, targetPlayer)
                 break
-              case "x":
-                damage = 30
+              case "shadowfeather":
+                this.handleShadowfeatherAbilities(key, abilityName, myPlayer, opponentPlayer, targetPlayer)
+                break
+              default:
+                // Fallback to generic abilities
+                this.handleGenericAbility(key, abilityName, targetPlayer)
                 break
             }
 
-            if (damage > 0) {
-              this.sendGameAction('damage', { target: targetPlayer, amount: damage })
-            } else if (heal > 0) {
-              this.sendGameAction('heal', { target: this.playerNumber, amount: heal })
-            }
-
-            // Send ability notification
-            this.sendGameAction('ability', { ability: key, target: targetPlayer })
+            // Send ability notification to opponent
+            this.sendGameAction('ability', { ability: key, target: targetPlayer, birdType: this.selectedBird })
           } catch (err) {
             console.error("Error in useAbility:", err)
           }
+        }
+
+        handlePhoenixAbilities(key: string, abilityName: string, myPlayer: any, opponentPlayer: any, targetPlayer: number) {
+          switch (key) {
+            case "q": // Ember Shot - 10 damage projectile
+              this.showAbilityEffect("🔥 Ember Shot", myPlayer.x + 50, myPlayer.y, "#ff4500")
+              this.sendGameAction('damage', { target: targetPlayer, amount: 10 })
+              break
+            case "e": // Flame Wave - 20 AoE damage
+              this.showAbilityEffect("🌊 Flame Wave", 600, 300, "#ff6600")
+              this.sendGameAction('damage', { target: targetPlayer, amount: 20 })
+              break
+            case "x": // Rebirth - Heal 50 HP (once per match)
+              if (this.rebirthUsed) {
+                this.showAbilityEffect("Rebirth already used!", myPlayer.x, myPlayer.y - 60, "#ff9900")
+                return
+              }
+              this.rebirthUsed = true
+              this.showAbilityEffect("🔥 REBIRTH +50 HP", myPlayer.x, myPlayer.y - 60, "#ff0000")
+              this.sendGameAction('heal', { target: this.playerNumber, amount: 50 })
+              break
+          }
+        }
+
+        handleFrostbeakAbilities(key: string, abilityName: string, myPlayer: any, opponentPlayer: any, targetPlayer: number) {
+          switch (key) {
+            case "q": // Ice Shard - 8 damage + slow effect
+              this.showAbilityEffect("❄️ Ice Shard", myPlayer.x + 50, myPlayer.y, "#00bfff")
+              this.sendGameAction('damage', { target: targetPlayer, amount: 8 })
+              this.applySlowEffect(opponentPlayer)
+              break
+            case "e": // Blizzard - Creates obstacle for opponent
+              this.showAbilityEffect("🌨️ Blizzard Storm", opponentPlayer.x, opponentPlayer.y, "#87ceeb")
+              this.createBlizzardObstacle(opponentPlayer)
+              break
+            case "x": // Freeze Time - Freezes opponent for 3 seconds
+              this.showAbilityEffect("🧊 FREEZE TIME", opponentPlayer.x, opponentPlayer.y - 60, "#00ffff")
+              this.applyFreezeEffect(opponentPlayer, 3000)
+              break
+          }
+        }
+
+        handleThunderwingAbilities(key: string, abilityName: string, myPlayer: any, opponentPlayer: any, targetPlayer: number) {
+          switch (key) {
+            case "q": // Shock Bolt - 12 damage lightning
+              this.showAbilityEffect("⚡ Shock Bolt", myPlayer.x + 50, myPlayer.y, "#ffff00")
+              this.sendGameAction('damage', { target: targetPlayer, amount: 12 })
+              break
+            case "e": // Wind Gust - Pushes opponent toward obstacles
+              this.showAbilityEffect("💨 Wind Gust", opponentPlayer.x, opponentPlayer.y, "#87ceeb")
+              this.applyWindGustEffect(opponentPlayer)
+              break
+            case "x": // Lightning Strike - 30 damage, chains to obstacles
+              this.showAbilityEffect("⚡ LIGHTNING STRIKE", opponentPlayer.x, opponentPlayer.y - 60, "#ffff00")
+              this.sendGameAction('damage', { target: targetPlayer, amount: 30 })
+              this.createLightningChain(opponentPlayer)
+              break
+          }
+        }
+
+        handleShadowfeatherAbilities(key: string, abilityName: string, myPlayer: any, opponentPlayer: any, targetPlayer: number) {
+          switch (key) {
+            case "q": // Shadow Strike - 15 damage stealth attack
+              this.showAbilityEffect("🌙 Shadow Strike", myPlayer.x + 50, myPlayer.y, "#4b0082")
+              this.sendGameAction('damage', { target: targetPlayer, amount: 15 })
+              break
+            case "e": // Vanish - 2 seconds invulnerability
+              this.showAbilityEffect("👻 VANISH", myPlayer.x, myPlayer.y - 60, "#9370db")
+              this.applyInvulnerabilityEffect(myPlayer, 2000)
+              break
+            case "x": // Nightmare - Reverses controls + disables abilities
+              this.showAbilityEffect("💀 NIGHTMARE", opponentPlayer.x, opponentPlayer.y - 60, "#800080")
+              this.applyNightmareEffect(opponentPlayer, 5000)
+              break
+          }
+        }
+
+        handleGenericAbility(key: string, abilityName: string, targetPlayer: number) {
+          let damage = 0
+          switch (key) {
+            case "q": damage = 10; break
+            case "e": damage = 20; break
+            case "x": damage = 30; break
+          }
+          
+          if (damage > 0) {
+            this.showAbilityEffect(abilityName, 600, 250, "#ffff00")
+            this.sendGameAction('damage', { target: targetPlayer, amount: damage })
+          }
+        }
+
+        // Effect application methods
+        applySlowEffect(player: any) {
+          if (!player) return
+          this.playerEffects.slow = true
+          player.body.setMaxVelocity(75, 150) // Reduced speed
+          this.addEffectIndicator(player, "slow", 3000)
+          setTimeout(() => {
+            this.playerEffects.slow = false
+            player.body.setMaxVelocity(150, 300) // Normal speed
+            this.removeEffectIndicator(player, "slow")
+          }, 3000)
+        }
+
+        createBlizzardObstacle(player: any) {
+          if (!player) return
+          const obstacle = this.add.graphics()
+            .fillStyle(0x87ceeb)
+            .fillRect(player.x - 50, player.y - 100, 100, 200)
+          
+          setTimeout(() => obstacle.destroy(), 4000)
+        }
+
+        applyFreezeEffect(player: any, duration: number) {
+          if (!player) return
+          this.playerEffects.frozen = true
+          const originalVelocity = { x: player.body.velocity.x, y: player.body.velocity.y }
+          player.setVelocity(0, 0)
+          player.body.setEnable(false)
+          this.addEffectIndicator(player, "frozen", duration)
+          
+          setTimeout(() => {
+            this.playerEffects.frozen = false
+            player.body.setEnable(true)
+            this.removeEffectIndicator(player, "frozen")
+          }, duration)
+        }
+
+        applyWindGustEffect(player: any) {
+          if (!player) return
+          player.setVelocity(100, -100) // Push toward obstacles
+        }
+
+        createLightningChain(player: any) {
+          if (!player) return
+          // Visual lightning effect
+          const lightning = this.add.graphics()
+            .lineStyle(4, 0xffff00)
+            .moveTo(player.x, player.y)
+            .lineTo(player.x + 200, player.y + 100)
+          
+          setTimeout(() => lightning.destroy(), 1000)
+        }
+
+        applyInvulnerabilityEffect(player: any, duration: number) {
+          if (!player) return
+          this.playerEffects.invulnerable = true
+          player.setAlpha(0.5) // Visual indicator
+          this.addEffectIndicator(player, "invulnerable", duration)
+          
+          setTimeout(() => {
+            this.playerEffects.invulnerable = false
+            player.setAlpha(1)
+            this.removeEffectIndicator(player, "invulnerable")
+          }, duration)
+        }
+
+        applyNightmareEffect(player: any, duration: number) {
+          if (!player) return
+          this.playerEffects.nightmare = true
+          // Controls will be reversed in the control handlers
+          this.addEffectIndicator(player, "nightmare", duration)
+          
+          setTimeout(() => {
+            this.playerEffects.nightmare = false
+            this.removeEffectIndicator(player, "nightmare")
+          }, duration)
+        }
+
+        // Effect indicator management methods
+        addEffectIndicator(player: any, effectType: string, duration: number) {
+          if (!player) return
+
+          const indicator = {
+            player: player,
+            effectType: effectType,
+            startTime: Date.now(),
+            duration: duration,
+            text: null as any
+          }
+
+          // Create visual indicator text
+          const effectColors = {
+            slow: "#87ceeb",
+            frozen: "#00ffff", 
+            invulnerable: "#9370db",
+            nightmare: "#800080"
+          }
+
+          const effectEmojis = {
+            slow: "🧊",
+            frozen: "❄️",
+            invulnerable: "👻",
+            nightmare: "💀"
+          }
+
+          try {
+            indicator.text = this.add.text(player.x, player.y - 80, effectEmojis[effectType as keyof typeof effectEmojis] || "✨", {
+              fontSize: "24px",
+              color: effectColors[effectType as keyof typeof effectColors] || "#ffff00",
+              fontStyle: "bold",
+              stroke: "#000000",
+              strokeThickness: 2,
+            }).setOrigin(0.5)
+
+            this.effectIndicators.push(indicator)
+          } catch (err) {
+            console.error("Error creating effect indicator:", err)
+          }
+        }
+
+        removeEffectIndicator(player: any, effectType: string) {
+          this.effectIndicators = this.effectIndicators.filter(indicator => {
+            if (indicator.player === player && indicator.effectType === effectType) {
+              if (indicator.text) indicator.text.destroy()
+              return false
+            }
+            return true
+          })
+        }
+
+        updateEffectIndicators() {
+          const currentTime = Date.now()
+          
+          this.effectIndicators = this.effectIndicators.filter(indicator => {
+            const elapsed = currentTime - indicator.startTime
+            
+            if (elapsed >= indicator.duration) {
+              // Remove expired indicators
+              if (indicator.text) indicator.text.destroy()
+              return false
+            }
+            
+            // Update position to follow player
+            if (indicator.text && indicator.player) {
+              indicator.text.x = indicator.player.x
+              indicator.text.y = indicator.player.y - 80
+              
+              // Fade effect near expiration
+              const remaining = indicator.duration - elapsed
+              if (remaining < 1000) {
+                indicator.text.setAlpha(remaining / 1000)
+              }
+            }
+            
+            return true
+          })
         }
 
         sendGameAction(action: string, payload: any) {
@@ -580,18 +912,75 @@ export default function GamePage() {
               payload
             })
           }
-        }
-
-        handleOpponentAbility(ability: string, target: number) {
-          const abilityNames = {
-            q: "Ember Shot",
-            e: "Flame Wave",
-            c: "Heal",
-            x: "Ultimate"
+        }        handleOpponentAbility(ability: string, target: number, birdType?: string) {
+          // Get bird-specific ability names
+          const opponentBirdData = this.opponentBirdData
+          let abilityName = "Unknown"
+          
+          if (ability === "c") {
+            abilityName = "Universal Heal"
+          } else if (opponentBirdData) {
+            switch (ability) {
+              case "q":
+                abilityName = opponentBirdData.abilities.normal.name
+                break
+              case "e":
+                abilityName = opponentBirdData.abilities.signature.name
+                break
+              case "x":
+                abilityName = opponentBirdData.abilities.ultimate.name
+                break
+            }
           }
           
-          const abilityName = abilityNames[ability as keyof typeof abilityNames] || "Unknown"
-          this.showAbilityEffect(abilityName, 600, 350, "#ff9900")
+          // Show appropriate visual effect
+          const color = this.getBirdAbilityColor(birdType || this.opponentBird, ability)
+          this.showAbilityEffect(`Opponent used ${abilityName}`, 600, 350, color)
+          
+          // Apply any visual effects based on opponent's bird type
+          if (birdType) {
+            this.showOpponentAbilityEffect(birdType, ability)
+          }
+        }
+
+        getBirdAbilityColor(birdType: string, ability: string): string {
+          const colorMap: { [key: string]: { [key: string]: string } } = {
+            phoenix: { q: "#ff4500", e: "#ff6600", x: "#ff0000", c: "#00ff00" },
+            frostbeak: { q: "#00bfff", e: "#87ceeb", x: "#00ffff", c: "#00ff00" },
+            thunderwing: { q: "#ffff00", e: "#87ceeb", x: "#ffff00", c: "#00ff00" },
+            shadowfeather: { q: "#4b0082", e: "#9370db", x: "#800080", c: "#00ff00" }
+          }
+          
+          return colorMap[birdType]?.[ability] || "#ff9900"
+        }
+
+        showOpponentAbilityEffect(birdType: string, ability: string) {
+          const opponentPlayer = this.playerNumber === 1 ? this.player2 : this.player1
+          if (!opponentPlayer) return
+
+          // Show bird-specific visual effects
+          switch (birdType) {
+            case "phoenix":
+              if (ability === "q") this.showAbilityEffect("🔥", opponentPlayer.x - 50, opponentPlayer.y, "#ff4500")
+              else if (ability === "e") this.showAbilityEffect("🌊🔥", 600, 300, "#ff6600")
+              else if (ability === "x") this.showAbilityEffect("🔥 Phoenix rises!", opponentPlayer.x, opponentPlayer.y - 60, "#ff0000")
+              break
+            case "frostbeak":
+              if (ability === "q") this.showAbilityEffect("❄️", opponentPlayer.x - 50, opponentPlayer.y, "#00bfff")
+              else if (ability === "e") this.showAbilityEffect("🌨️ Blizzard incoming!", 300, 300, "#87ceeb")
+              else if (ability === "x") this.showAbilityEffect("🧊 Time frozen!", 600, 300, "#00ffff")
+              break
+            case "thunderwing":
+              if (ability === "q") this.showAbilityEffect("⚡", opponentPlayer.x - 50, opponentPlayer.y, "#ffff00")
+              else if (ability === "e") this.showAbilityEffect("💨 Wind incoming!", 300, 300, "#87ceeb")
+              else if (ability === "x") this.showAbilityEffect("⚡ Lightning strikes!", 600, 300, "#ffff00")
+              break
+            case "shadowfeather":
+              if (ability === "q") this.showAbilityEffect("🌙", opponentPlayer.x - 50, opponentPlayer.y, "#4b0082")
+              else if (ability === "e") this.showAbilityEffect("👻 Enemy vanished!", opponentPlayer.x, opponentPlayer.y - 60, "#9370db")
+              else if (ability === "x") this.showAbilityEffect("💀 Nightmare curse!", 600, 300, "#800080")
+              break
+          }
         }
 
         checkAbilityPath(abilityKey: string) {
@@ -667,11 +1056,10 @@ export default function GamePage() {
                 color: "#ffffff",
                 stroke: "#000000",
                 strokeThickness: 2,
-              })
-              .setOrigin(0.5)
+              })              .setOrigin(0.5)
 
             this.add
-              .text(600, 350, "Press R to restart or ESC to menu", {
+              .text(600, 350, "Press ESC to find new match", {
                 fontSize: "18px",
                 color: "#ffffff",
                 stroke: "#000000",
@@ -716,6 +1104,9 @@ export default function GamePage() {
             if (this.player2HPText) this.player2HPText.setText(`HP: ${this.player2.hp}`)
             if (this.player1ScoreText) this.player1ScoreText.setText(`Score: ${this.player1.score}`)
             if (this.player2ScoreText) this.player2ScoreText.setText(`Score: ${this.player2.score}`)
+
+            // Update effect indicators
+            this.updateEffectIndicators()
           } catch (err) {
             console.error("Error in update:", err)
           }
@@ -902,17 +1293,16 @@ export default function GamePage() {
           const opponentPlayer = gameData.matchData.playerNumber === 1 ? window.gameScene.player2 : window.gameScene.player1
           if (opponentPlayer) {
             opponentPlayer.setPosition(x, y)
-            opponentPlayer.setVelocity(velocityX, velocityY)
-          }
+            opponentPlayer.setVelocity(velocityX, velocityY)          }
         }
       }
     })
 
     socket.on('abilityUsed', (data) => {
       if (window.gameScene) {
-        const { playerNumber, ability, target } = data
+        const { playerNumber, ability, target, birdType } = data
         if (playerNumber !== gameData.matchData.playerNumber) {
-          window.gameScene.handleOpponentAbility(ability, target)
+          window.gameScene.handleOpponentAbility(ability, target, birdType)
         }
       }
     })
