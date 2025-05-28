@@ -1,0 +1,17 @@
+{
+  "name": "flappy-bird-battle-server",
+  "version": "1.0.0",
+  "description": "Socket.IO server for Flappy Bird Battle multiplayer game",
+  "main": "server/socket-server.js",
+  "scripts": {
+    "start": "node server/socket-server.js",
+    "dev": "node server/socket-server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1",
+    "http": "latest"
+  }
+}

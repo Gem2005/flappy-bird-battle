@@ -9,7 +9,11 @@ const io = new Server(httpServer, {
   cors: {
     origin: process.env.NODE_ENV === 'development' 
       ? ["http://localhost:3000", "http://127.0.0.1:3000"]
-      : [process.env.NEXTAUTH_URL || "https://your-domain.com"],
+      : [
+          process.env.NEXTAUTH_URL || "https://your-domain.com",
+          "https://your-vercel-app.vercel.app",
+          /\.vercel\.app$/
+        ],
     methods: ["GET", "POST"],
     credentials: true
   },
