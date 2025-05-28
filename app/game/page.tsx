@@ -1138,7 +1138,8 @@ export default function GamePage() {
         width: 1200,
         height: 600,
         parent: gameRef.current,
-        backgroundColor: "#87CEEB",        physics: {
+        backgroundColor: "#87CEEB",        
+        physics: {
           default: "arcade",
           arcade: {
             gravity: { x: 0, y: 0 },

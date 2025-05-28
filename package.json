@@ -1,12 +1,14 @@
 {
   "name": "my-v0-project",
   "version": "0.1.0",
-  "private": true,
-  "scripts": {
+  "private": true,  "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "start:socket": "node server/socket-server.js",
+    "start:prod": "concurrently \"npm run start\" \"npm run start:socket\"",
+    "postbuild": "echo 'Build completed successfully'"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
