@@ -30,13 +30,21 @@ interface SocketProviderProps {
 export function SocketProvider({ children }: SocketProviderProps) {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-
-  useEffect(() => {    const socketInstance = io(process.env.NODE_ENV === "production" 
-      ? process.env.NEXT_PUBLIC_SOCKET_URL || 'https://your-railway-app.railway.app'
-      : "http://localhost:3001", {
+  useEffect(() => {
+    const socketUrl = process.env.NODE_ENV === "production" 
+      ? (process.env.NEXT_PUBLIC_SOCKET_URL || 'https://flappy-bird-battle-production.up.railway.app')
+      : "http://localhost:3001"
+    
+    console.log('🔌 Connecting to socket URL:', socketUrl)
+    
+    const socketInstance = io(socketUrl, {
       transports: ['websocket', 'polling'],
-      timeout: 10000,
-      reconnection: true
+      timeout: 20000,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      upgrade: true,
+      rememberUpgrade: false
     })
 
     socketInstance.on("connect", () => {

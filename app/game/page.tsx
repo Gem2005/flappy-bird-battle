@@ -1240,16 +1240,22 @@ export default function GamePage() {
           playerNumber: parsedGameData.matchData.playerNumber,
           playerName: localStorage.getItem("playerName") || "Player"
         })
-        
-      } else {
+          } else {
         console.log('🔌 No preserved socket, creating new connection...')
-          socketRef.current = io(process.env.NODE_ENV === 'production' 
-          ? process.env.NEXT_PUBLIC_SOCKET_URL || 'https://your-railway-app.railway.app'
-          : 'http://localhost:3001', {
+        
+        const socketUrl = process.env.NODE_ENV === 'production' 
+          ? (process.env.NEXT_PUBLIC_SOCKET_URL || 'https://flappy-bird-battle-production.up.railway.app')
+          : 'http://localhost:3001'
+        
+        console.log('🔌 Connecting to socket URL:', socketUrl)
+        
+        socketRef.current = io(socketUrl, {
           transports: ['websocket', 'polling'],
           forceNew: false,
           reconnection: true,
-          timeout: 10000
+          timeout: 20000,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000
         })
 
         const socket = socketRef.current

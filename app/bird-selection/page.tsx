@@ -361,21 +361,26 @@ export default function BirdSelectionPage() {
     componentMountedRef.current = true
     
     const name = localStorage.getItem("playerName") || "Player"
-    setPlayerName(name)
-
-    // Create socket only if needed
+    setPlayerName(name)    // Create socket only if needed
     if (!socketRef.current && !socketCreatedRef.current) {
       console.log('🔌 Creating new socket connection...')
       socketCreatedRef.current = true
-        socketRef.current = io(process.env.NODE_ENV === 'production' 
-        ? process.env.NEXT_PUBLIC_SOCKET_URL || 'https://your-railway-app.railway.app'
-        : 'http://localhost:3001', {
+      
+      const socketUrl = process.env.NODE_ENV === 'production' 
+        ? (process.env.NEXT_PUBLIC_SOCKET_URL || 'https://flappy-bird-battle-production.up.railway.app')
+        : 'http://localhost:3001'
+      
+      console.log('🔌 Connecting to socket URL:', socketUrl)
+      
+      socketRef.current = io(socketUrl, {
         transports: ['websocket', 'polling'],
-        timeout: 10000,
+        timeout: 20000,
         forceNew: true,
         reconnection: true,
-        reconnectionAttempts: 3,
+        reconnectionAttempts: 5,
         reconnectionDelay: 1000,
+        upgrade: true,
+        rememberUpgrade: false
       })
 
       setupSocketEvents(socketRef.current)

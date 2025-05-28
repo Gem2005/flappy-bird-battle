@@ -2,7 +2,21 @@ const { createServer } = require('http')
 const { Server } = require('socket.io')
 
 // Create HTTP server
-const httpServer = createServer()
+const httpServer = createServer((req, res) => {
+  // Simple health check endpoint
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      rooms: gameRooms.size,
+      waitingPlayers: waitingPlayers.length 
+    }))
+  } else {
+    res.writeHead(404, { 'Content-Type': 'text/plain' })
+    res.end('Socket.io server - WebSocket connections only')
+  }
+})
 
 // Initialize Socket.io server
 const io = new Server(httpServer, {
@@ -10,15 +24,19 @@ const io = new Server(httpServer, {
     origin: process.env.NODE_ENV === 'development' 
       ? ["http://localhost:3000", "http://127.0.0.1:3000"]
       : [
-          process.env.NEXTAUTH_URL || "https://your-domain.com",
-          "https://your-vercel-app.vercel.app",
-          /\.vercel\.app$/
+          "https://flappy-bird-battle.vercel.app",
+          "https://flappy-bird-battle-git-main-geminis-projects-1c34cba0.vercel.app",
+          /\.vercel\.app$/,
+          /^https:\/\/.*\.vercel\.app$/
         ],
     methods: ["GET", "POST"],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ["*"]
   },
   transports: ['websocket', 'polling'],
-  allowEIO3: true
+  allowEIO3: true,
+  path: '/socket.io/',
+  serveClient: false
 })
 
 // Game rooms and player management
