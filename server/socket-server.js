@@ -21,7 +21,7 @@ const httpServer = createServer((req, res) => {
 // Initialize Socket.io server
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.NODE_ENV === 'development' 
+    origin: process.env.NODE_ENV === 'production' 
       ? ["http://localhost:3000", "http://127.0.0.1:3000"]
       : [
           "https://flappy-bird-battle.vercel.app",
