@@ -1243,9 +1243,8 @@ export default function GamePage() {
         
       } else {
         console.log('🔌 No preserved socket, creating new connection...')
-        
-        socketRef.current = io(process.env.NODE_ENV === 'production' 
-          ? process.env.NEXTAUTH_URL || window.location.origin
+          socketRef.current = io(process.env.NODE_ENV === 'production' 
+          ? process.env.NEXT_PUBLIC_SOCKET_URL || 'https://your-railway-app.railway.app'
           : 'http://localhost:3001', {
           transports: ['websocket', 'polling'],
           forceNew: false,

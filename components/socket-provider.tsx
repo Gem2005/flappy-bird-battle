@@ -31,10 +31,12 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
 
-  useEffect(() => {
-    const socketInstance = io(process.env.NODE_ENV === "production" ? undefined : "http://localhost:3000", {
-      path: "/api/socket",
-      addTrailingSlash: false,
+  useEffect(() => {    const socketInstance = io(process.env.NODE_ENV === "production" 
+      ? process.env.NEXT_PUBLIC_SOCKET_URL || 'https://your-railway-app.railway.app'
+      : "http://localhost:3001", {
+      transports: ['websocket', 'polling'],
+      timeout: 10000,
+      reconnection: true
     })
 
     socketInstance.on("connect", () => {

@@ -367,9 +367,8 @@ export default function BirdSelectionPage() {
     if (!socketRef.current && !socketCreatedRef.current) {
       console.log('🔌 Creating new socket connection...')
       socketCreatedRef.current = true
-      
-      socketRef.current = io(process.env.NODE_ENV === 'production' 
-        ? process.env.NEXTAUTH_URL || window.location.origin
+        socketRef.current = io(process.env.NODE_ENV === 'production' 
+        ? process.env.NEXT_PUBLIC_SOCKET_URL || 'https://your-railway-app.railway.app'
         : 'http://localhost:3001', {
         transports: ['websocket', 'polling'],
         timeout: 10000,
