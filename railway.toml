@@ -1,0 +1,12 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "node server/socket-server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+
+[environments.production.variables]
+NODE_ENV = "production"
+SOCKET_PORT = "3001"

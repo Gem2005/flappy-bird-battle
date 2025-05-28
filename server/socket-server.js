@@ -508,19 +508,20 @@ async function findAvailablePort(startPort) {
 
 // Start server with port handling
 async function startServer() {
-  const preferredPort = process.env.SOCKET_PORT || 3001
+  // Railway provides PORT environment variable
+  const preferredPort = process.env.PORT || process.env.SOCKET_PORT || 3001
   
   try {
-    const availablePort = await findAvailablePort(preferredPort)
+    const availablePort = process.env.PORT ? preferredPort : await findAvailablePort(preferredPort)
     
-    httpServer.listen(availablePort, () => {
+    httpServer.listen(availablePort, '0.0.0.0', () => {
       console.log(`✅ Socket.io server running on port ${availablePort}`)
       console.log(`🌐 CORS origins: ${process.env.NODE_ENV === 'development' ? '["http://localhost:3000", "http://127.0.0.1:3000"]' : '[production domains]'}`)
       console.log(`🔗 Connect to: http://localhost:${availablePort}`)
       console.log(`🎮 Game rooms: 0 active`)
       console.log(`👥 Waiting players: 0`)
       
-      if (availablePort !== preferredPort) {
+      if (availablePort !== preferredPort && !process.env.PORT) {
         console.log(`⚠️  Port ${preferredPort} was in use, using ${availablePort} instead`)
         console.log(`💡 Update your client to connect to port ${availablePort}`)
       }
