@@ -277,20 +277,22 @@ export default function GamePage() {
                 .image(Phaser.Math.Between(0, 1200), Phaser.Math.Between(50, 150), "cloud")
                 .setAlpha(0.3)
                 .setScale(0.5)
-            }            // Create players with physics and bird-specific stats
-            this.player1 = this.physics.add.sprite(150, 300, "bird1")
+            }            // Create players with physics and bird-specific stats - positioned at extreme sides
+            this.player1 = this.physics.add.sprite(50, 300, "bird1")
             this.player1.setBounce(0.2)
             this.player1.setCollideWorldBounds(true)
             this.player1.setScale(1.5)
             this.player1.body.setSize(20, 20)
+            this.player1.body.setGravityY(300) // Individual gravity for bird
             this.player1.hp = this.playerNumber === 1 ? this.myBirdData.hp : this.opponentBirdData.hp
             this.player1.score = 0
 
-            this.player2 = this.physics.add.sprite(750, 300, "bird2")
+            this.player2 = this.physics.add.sprite(1150, 300, "bird2")
             this.player2.setBounce(0.2)
             this.player2.setCollideWorldBounds(true)
             this.player2.setScale(1.5)
             this.player2.body.setSize(20, 20)
+            this.player2.body.setGravityY(300) // Individual gravity for bird
             this.player2.hp = this.playerNumber === 2 ? this.myBirdData.hp : this.opponentBirdData.hp
             this.player2.score = 0
 
@@ -559,55 +561,72 @@ export default function GamePage() {
           } catch (err) {
             console.error("Error in startCooldown:", err)
           }
-        }
-
-        spawnPipes() {
+        }        spawnPipes() {
           if (this.gameOver) return
 
           try {
             const gap = 180
             const pipeY = Phaser.Math.Between(150, 450)
+            const centerX = 600 // Middle line
 
-            // Left side pipes (player 1)
-            const topPipe1 = this.pipes.create(600, pipeY - gap / 2 - 200, "pipe")
-            const bottomPipe1 = this.pipes.create(600, pipeY + gap / 2 + 200, "pipe")
+            // Create pipes at center that move toward left side (player 1)
+            const topPipeLeft = this.pipes.create(centerX, pipeY - gap / 2 - 200, "pipe")
+            const bottomPipeLeft = this.pipes.create(centerX, pipeY + gap / 2 + 200, "pipe")            // Set velocity toward player 1 (left side)
+            topPipeLeft.setVelocityX(-150)
+            topPipeLeft.setVelocityY(0) // Ensure no vertical movement
+            bottomPipeLeft.setVelocityX(-150)
+            bottomPipeLeft.setVelocityY(0) // Ensure no vertical movement
+            topPipeLeft.body.setSize(64, 400)
+            bottomPipeLeft.body.setSize(64, 400)
+            topPipeLeft.body.setImmovable(true)
+            bottomPipeLeft.body.setImmovable(true)
+            topPipeLeft.body.setGravityY(0) // No gravity - pipes stay level like real Flappy Bird
+            bottomPipeLeft.body.setGravityY(0)
+            topPipeLeft.side = "left"
+            bottomPipeLeft.side = "left"
 
-            topPipe1.setVelocityX(-150)
-            bottomPipe1.setVelocityX(-150)
-            topPipe1.body.setSize(64, 400)
-            bottomPipe1.body.setSize(64, 400)
-            topPipe1.body.setImmovable(true)
-            bottomPipe1.body.setImmovable(true)
-            topPipe1.side = "left"
-            bottomPipe1.side = "left"
+            // Create pipes at center that move toward right side (player 2)
+            const topPipeRight = this.pipes.create(centerX, pipeY - gap / 2 - 200, "pipe")
+            const bottomPipeRight = this.pipes.create(centerX, pipeY + gap / 2 + 200, "pipe")
 
-            // Right side pipes (player 2)
-            const topPipe2 = this.pipes.create(1200, pipeY - gap / 2 - 200, "pipe")
-            const bottomPipe2 = this.pipes.create(1200, pipeY + gap / 2 + 200, "pipe")
+            // Set velocity toward player 2 (right side)
+            topPipeRight.setVelocityX(150)
+            topPipeRight.setVelocityY(0) // Ensure no vertical movement
+            bottomPipeRight.setVelocityX(150)
+            bottomPipeRight.setVelocityY(0) // Ensure no vertical movement
+            topPipeRight.body.setSize(64, 400)
+            bottomPipeRight.body.setSize(64, 400)
+            topPipeRight.body.setImmovable(true)
+            bottomPipeRight.body.setImmovable(true)
+            topPipeRight.body.setGravityY(0) // No gravity - pipes stay level like real Flappy Bird
+            bottomPipeRight.body.setGravityY(0)
+            topPipeRight.side = "right"
+            bottomPipeRight.side = "right"
 
-            topPipe2.setVelocityX(-150)
-            bottomPipe2.setVelocityX(-150)
-            topPipe2.body.setSize(64, 400)
-            bottomPipe2.body.setSize(64, 400)
-            topPipe2.body.setImmovable(true)
-            bottomPipe2.body.setImmovable(true)
-            topPipe2.side = "right"
-            bottomPipe2.side = "right"            // Set up collisions with invulnerability check
-            this.physics.add.overlap(this.player1, [topPipe1, bottomPipe1], () => {
+            // Set up collisions for both players with all pipes (universal collision system)
+            this.physics.add.overlap(this.player1, [topPipeLeft, bottomPipeLeft, topPipeRight, bottomPipeRight], () => {
               if (!this.gameOver && !this.playerEffects.invulnerable) {
                 this.sendGameAction('damage', { target: 1, amount: 100 })
               }
             })
 
-            this.physics.add.overlap(this.player2, [topPipe2, bottomPipe2], () => {
+            this.physics.add.overlap(this.player2, [topPipeLeft, bottomPipeLeft, topPipeRight, bottomPipeRight], () => {
               if (!this.gameOver && !this.playerEffects.invulnerable) {
                 this.sendGameAction('damage', { target: 2, amount: 100 })
               }
+            })            // Clean up pipes that go off screen
+            const allPipes = [topPipeLeft, bottomPipeLeft, topPipeRight, bottomPipeRight]
+            allPipes.forEach((pipe: any) => {
+              this.time.delayedCall(8000, () => {
+                if (pipe && pipe.active) {
+                  pipe.destroy()
+                }
+              })
             })
           } catch (err) {
             console.error("Error in spawnPipes:", err)
           }
-        }        useAbility(key: string, abilityName: string) {
+        }useAbility(key: string, abilityName: string) {
           try {
             const myPlayer = this.playerNumber === 1 ? this.player1 : this.player2
             const opponentPlayer = this.playerNumber === 1 ? this.player2 : this.player1
@@ -1119,11 +1138,10 @@ export default function GamePage() {
         width: 1200,
         height: 600,
         parent: gameRef.current,
-        backgroundColor: "#87CEEB",
-        physics: {
+        backgroundColor: "#87CEEB",        physics: {
           default: "arcade",
           arcade: {
-            gravity: { x: 0, y: 300 },
+            gravity: { x: 0, y: 0 },
             debug: false,
           },
         },
