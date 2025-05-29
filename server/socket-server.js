@@ -1,12 +1,17 @@
 const { createServer } = require('http')
 const { Server } = require('socket.io')
 
-// Create HTTP server with better error handling
+// FIXED: Declare variables BEFORE using them in the HTTP server
+const gameRooms = new Map()
+const waitingPlayers = []
+
+// Create HTTP server with better error handling for Railway
 const httpServer = createServer((req, res) => {
-  // Add proper headers for Railway
+  // Enhanced headers for Railway deployment
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+  res.setHeader('Access-Control-Allow-Credentials', 'true')
   
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
@@ -15,7 +20,7 @@ const httpServer = createServer((req, res) => {
     return
   }
 
-  // Simple health check endpoint - make it more flexible
+  // Enhanced health endpoint with more debugging info
   if (req.url === '/health' || req.url === '/' || req.url.startsWith('/health')) {
     res.writeHead(200, { 
       'Content-Type': 'application/json',
@@ -26,7 +31,76 @@ const httpServer = createServer((req, res) => {
       timestamp: new Date().toISOString(),
       rooms: gameRooms.size,
       waitingPlayers: waitingPlayers.length,
-      port: PORT,
+      port: process.env.PORT || 3001,
+      env: process.env.NODE_ENV || 'production',
+      server: 'socket.io',
+      transports: ['polling', 'websocket'],
+      cors: 'enabled'
+    }))
+  } else {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      message: 'Socket.io server running',
+      status: 'ok',
+      socketPath: '/socket.io/',
+      availableEndpoints: ['/health', '/socket.io/']
+    }))
+  }
+})
+
+// Initialize Socket.io server with Railway-optimized config
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*", // Allow all origins for Railway
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["*"]
+  },
+  // CRITICAL: Force polling first, then allow websocket upgrade
+  transports: ['polling'], // Start with polling only
+  allowEIO3: true,
+  path: '/socket.io/',
+  serveClient: false,
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  // Additional Railway-specific settings
+  upgradeTimeout: 30000,
+  maxHttpBufferSize: 1e6,
+  allowUpgrades: true, // Allow upgrade to websocket after polling works
+})
+
+// Enable transport debugging
+io.engine.on("connection_error", (err) => {
+  console.log('❌ Connection error:', err.req)
+  console.log('❌ Error code:', err.code)
+  console.log('❌ Error message:', err.message)
+  console.log('❌ Error context:', err.context)
+})
+
+io.on("connection", (socket) => {
+  console.log(`✅ Player connected: ${socket.id} via ${socket.conn.transport.name}`)
+  
+  // Log transport upgrades
+  socket.conn.on("upgrade", () => {
+    console.log(`⬆️ Upgraded to ${socket.conn.transport.name}`)
+  })
+
+  socket.conn.on("upgradeError", (err) => {
+    console.log(`❌ Upgrade error: ${err}`)
+  })
+
+  // FIXED: Variables are now accessible here
+  if (req.url === '/health' || req.url === '/' || req.url.startsWith('/health')) {
+    res.writeHead(200, { 
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache'
+    })
+    res.end(JSON.stringify({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      rooms: gameRooms.size,
+      waitingPlayers: waitingPlayers.length,
+      port: process.env.PORT || 3001,
       env: process.env.NODE_ENV || 'production'
     }))
   } else {
@@ -37,38 +111,6 @@ const httpServer = createServer((req, res) => {
       socketPath: '/socket.io/'
     }))
   }
-})
-
-// Initialize Socket.io server with Railway-friendly config
-const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.NODE_ENV === 'development' 
-      ? ["http://localhost:3000", "http://127.0.0.1:3000"]
-      : [
-          "https://flappy-bird-battle.vercel.app",
-          "https://flappy-bird-battle-git-main-geminis-projects-1c34cba0.vercel.app",
-          /\.vercel\.app$/,
-          /^https:\/\/.*\.vercel\.app$/,
-          "*" // Allow all origins for Railway deployment testing
-        ],
-    methods: ["GET", "POST", "OPTIONS"],
-    credentials: true,
-    allowedHeaders: ["*"]
-  },
-  transports: ['polling', 'websocket'], // Prioritize polling for Railway
-  allowEIO3: true,
-  path: '/socket.io/',
-  serveClient: false,
-  pingTimeout: 60000,
-  pingInterval: 25000
-})
-
-// Game rooms and player management
-const gameRooms = new Map()
-const waitingPlayers = []
-
-io.on("connection", (socket) => {
-  console.log("Player connected:", socket.id)
 
   socket.on("findMatch", (playerData) => {
     console.log("Player looking for match:", playerData)
@@ -516,26 +558,39 @@ io.on("connection", (socket) => {
   })
 })
 
-// Start server - Railway provides PORT environment variable
+// Start server with Railway-specific configuration
 const PORT = process.env.PORT || 3001
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Socket.io server running on port ${PORT}`)
   console.log(`🌐 Server bound to 0.0.0.0:${PORT}`)
-  console.log(`🌐 CORS origins: ${process.env.NODE_ENV === 'development' ? '["http://localhost:3000"]' : '[production domains + *]'}`)
   console.log(`🔗 Health check: http://0.0.0.0:${PORT}/health`)
-  console.log(`🎮 Game rooms: 0 active`)
-  console.log(`👥 Waiting players: 0`)
+  console.log(`🎮 Socket.io endpoint: http://0.0.0.0:${PORT}/socket.io/`)
+  console.log(`🚀 Transports: polling (primary), websocket (upgrade)`)
 })
 
-// Add error handling for the server
+// Enhanced error handling for Railway
 httpServer.on('error', (err) => {
   console.error('❌ Server error:', err)
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use`)
+    process.exit(1)
+  }
+  if (err.code === 'EACCES') {
+    console.error(`❌ Permission denied on port ${PORT}`)
+    process.exit(1)
+  }
 })
 
 httpServer.on('listening', () => {
   const address = httpServer.address()
-  console.log(`🚀 Server is listening on ${address.address}:${address.port}`)
+  console.log(`🚀 Server successfully listening on ${address.address}:${address.port}`)
+  console.log(`📡 Railway URL should be: https://flappy-bird-battle-production.up.railway.app`)
+})
+
+// Add connection monitoring
+httpServer.on('connection', (socket) => {
+  console.log(`🔌 New HTTP connection from ${socket.remoteAddress}`)
 })
 
 // Graceful shutdown
