@@ -1,24 +1,45 @@
 const { createServer } = require('http')
 const { Server } = require('socket.io')
 
-// Create HTTP server
+// Create HTTP server with better error handling
 const httpServer = createServer((req, res) => {
-  // Simple health check endpoint
-  if (req.url === '/health' || req.url === '/') {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
+  // Add proper headers for Railway
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200)
+    res.end()
+    return
+  }
+
+  // Simple health check endpoint - make it more flexible
+  if (req.url === '/health' || req.url === '/' || req.url.startsWith('/health')) {
+    res.writeHead(200, { 
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache'
+    })
     res.end(JSON.stringify({ 
       status: 'ok', 
       timestamp: new Date().toISOString(),
       rooms: gameRooms.size,
-      waitingPlayers: waitingPlayers.length 
+      waitingPlayers: waitingPlayers.length,
+      port: PORT,
+      env: process.env.NODE_ENV || 'production'
     }))
   } else {
-    res.writeHead(404, { 'Content-Type': 'text/plain' })
-    res.end('Socket.io server - WebSocket connections only')
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      message: 'Socket.io server running',
+      status: 'ok',
+      socketPath: '/socket.io/'
+    }))
   }
 })
 
-// Initialize Socket.io server
+// Initialize Socket.io server with Railway-friendly config
 const io = new Server(httpServer, {
   cors: {
     origin: process.env.NODE_ENV === 'development' 
@@ -27,16 +48,19 @@ const io = new Server(httpServer, {
           "https://flappy-bird-battle.vercel.app",
           "https://flappy-bird-battle-git-main-geminis-projects-1c34cba0.vercel.app",
           /\.vercel\.app$/,
-          /^https:\/\/.*\.vercel\.app$/
+          /^https:\/\/.*\.vercel\.app$/,
+          "*" // Allow all origins for Railway deployment testing
         ],
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["*"]
   },
-  transports: ['websocket', 'polling'],
+  transports: ['polling', 'websocket'], // Prioritize polling for Railway
   allowEIO3: true,
   path: '/socket.io/',
-  serveClient: false
+  serveClient: false,
+  pingTimeout: 60000,
+  pingInterval: 25000
 })
 
 // Game rooms and player management
@@ -492,52 +516,43 @@ io.on("connection", (socket) => {
   })
 })
 
-// Function to find available port
-async function findAvailablePort(startPort) {
-  return new Promise((resolve) => {
-    const server = createServer()
-    server.listen(startPort, () => {
-      const port = server.address().port
-      server.close(() => resolve(port))
-    })
-    server.on('error', () => {
-      resolve(findAvailablePort(startPort + 1))
-    })
-  })
-}
+// Start server - Railway provides PORT environment variable
+const PORT = process.env.PORT || 3001
 
-// Start server with port handling
-async function startServer() {
-  // Railway provides PORT environment variable
-  const preferredPort = process.env.PORT || process.env.SOCKET_PORT || 3001
-  
-  try {
-    const availablePort = process.env.PORT ? preferredPort : await findAvailablePort(preferredPort)
-    
-    httpServer.listen(availablePort, '0.0.0.0', () => {
-      console.log(`✅ Socket.io server running on port ${availablePort}`)
-      console.log(`🌐 CORS origins: ${process.env.NODE_ENV === 'development' ? '["http://localhost:3000", "http://127.0.0.1:3000"]' : '[production domains]'}`)
-      console.log(`🔗 Connect to: http://localhost:${availablePort}`)
-      console.log(`🎮 Game rooms: 0 active`)
-      console.log(`👥 Waiting players: 0`)
-      
-      if (availablePort !== preferredPort && !process.env.PORT) {
-        console.log(`⚠️  Port ${preferredPort} was in use, using ${availablePort} instead`)
-        console.log(`💡 Update your client to connect to port ${availablePort}`)
-      }
-    })
-  } catch (error) {
-    console.error('❌ Failed to start server:', error)
-    process.exit(1)
-  }
-}
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Socket.io server running on port ${PORT}`)
+  console.log(`🌐 Server bound to 0.0.0.0:${PORT}`)
+  console.log(`🌐 CORS origins: ${process.env.NODE_ENV === 'development' ? '["http://localhost:3000"]' : '[production domains + *]'}`)
+  console.log(`🔗 Health check: http://0.0.0.0:${PORT}/health`)
+  console.log(`🎮 Game rooms: 0 active`)
+  console.log(`👥 Waiting players: 0`)
+})
 
-// Start the server
-startServer()
+// Add error handling for the server
+httpServer.on('error', (err) => {
+  console.error('❌ Server error:', err)
+})
+
+httpServer.on('listening', () => {
+  const address = httpServer.address()
+  console.log(`🚀 Server is listening on ${address.address}:${address.port}`)
+})
 
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down Socket.io server...')
+  console.log(`📊 Final stats: ${gameRooms.size} active rooms, ${waitingPlayers.length} waiting players`)
+  
+  io.close(() => {
+    httpServer.close(() => {
+      console.log('✅ Server shut down gracefully')
+      process.exit(0)
+    })
+  })
+})
+
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Received SIGTERM, shutting down gracefully...')
   console.log(`📊 Final stats: ${gameRooms.size} active rooms, ${waitingPlayers.length} waiting players`)
   
   io.close(() => {
