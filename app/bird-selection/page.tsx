@@ -361,7 +361,9 @@ export default function BirdSelectionPage() {
     componentMountedRef.current = true
     
     const name = localStorage.getItem("playerName") || "Player"
-    setPlayerName(name)    // Create socket only if needed
+    setPlayerName(name)
+    
+    // Create socket only if needed
     if (!socketRef.current && !socketCreatedRef.current) {
       console.log('🔌 Creating new socket connection...')
       socketCreatedRef.current = true
@@ -373,13 +375,13 @@ export default function BirdSelectionPage() {
       console.log('🔌 Connecting to socket URL:', socketUrl)
       
       socketRef.current = io(socketUrl, {
-        transports: ['websocket', 'polling'],
+        transports: ['polling'], // FORCE polling only - no websocket
         timeout: 20000,
         forceNew: true,
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
-        upgrade: true,
+        upgrade: false, // DISABLE websocket upgrades
         rememberUpgrade: false
       })
 

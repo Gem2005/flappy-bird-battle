@@ -38,12 +38,12 @@ export function SocketProvider({ children }: SocketProviderProps) {
     console.log('🔌 Connecting to socket URL:', socketUrl)
     
     const socketInstance = io(socketUrl, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling'],
       timeout: 20000,
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      upgrade: true,
+      upgrade: false,
       rememberUpgrade: false
     })
 

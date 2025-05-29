@@ -56,8 +56,8 @@ const io = new Server(httpServer, {
     credentials: true,
     allowedHeaders: ["*"]
   },
-  // CRITICAL: Force polling first, then allow websocket upgrade
-  transports: ['polling'], // Start with polling only
+  // CRITICAL: Force polling ONLY - no websocket
+  transports: ['polling'], // ONLY polling, no websocket
   allowEIO3: true,
   path: '/socket.io/',
   serveClient: false,
@@ -66,7 +66,7 @@ const io = new Server(httpServer, {
   // Additional Railway-specific settings
   upgradeTimeout: 30000,
   maxHttpBufferSize: 1e6,
-  allowUpgrades: true, // Allow upgrade to websocket after polling works
+  allowUpgrades: false, // DISABLE websocket upgrades completely
 })
 
 // Enable transport debugging
@@ -88,29 +88,6 @@ io.on("connection", (socket) => {
   socket.conn.on("upgradeError", (err) => {
     console.log(`❌ Upgrade error: ${err}`)
   })
-
-  // FIXED: Variables are now accessible here
-  if (req.url === '/health' || req.url === '/' || req.url.startsWith('/health')) {
-    res.writeHead(200, { 
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache'
-    })
-    res.end(JSON.stringify({ 
-      status: 'ok', 
-      timestamp: new Date().toISOString(),
-      rooms: gameRooms.size,
-      waitingPlayers: waitingPlayers.length,
-      port: process.env.PORT || 3001,
-      env: process.env.NODE_ENV || 'production'
-    }))
-  } else {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({
-      message: 'Socket.io server running',
-      status: 'ok',
-      socketPath: '/socket.io/'
-    }))
-  }
 
   socket.on("findMatch", (playerData) => {
     console.log("Player looking for match:", playerData)

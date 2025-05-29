@@ -1250,12 +1250,14 @@ export default function GamePage() {
         console.log('🔌 Connecting to socket URL:', socketUrl)
         
         socketRef.current = io(socketUrl, {
-          transports: ['polling'], // Force polling instead of websocket
+          transports: ['polling'], // Force polling only - no websocket
           forceNew: false,
           reconnection: true,
           timeout: 20000,
           reconnectionAttempts: 5,
-          reconnectionDelay: 1000
+          reconnectionDelay: 1000,
+          upgrade: false, // DISABLE websocket upgrades
+          rememberUpgrade: false // Don't remember websocket from previous sessions
         })
 
         const socket = socketRef.current
