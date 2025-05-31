@@ -232,7 +232,7 @@ export default function GamePage() {
               .destroy()
 
             this.add.graphics()
-              .fillStyle(0x4ecdc4)
+              .fillStyle(0x00FFFF) // Bright cyan color for better visibility
               .fillRect(0, 0, 32, 32)
               .generateTexture("bird2", 32, 32)
               .destroy()
