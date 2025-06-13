@@ -232,7 +232,7 @@ export default function GamePage() {
               .destroy()
 
             this.add.graphics()
-              .fillStyle(0x00FFFF) // Bright cyan color for better visibility
+              .fillStyle(0x00FF00) // Bright green color for better visibility
               .fillRect(0, 0, 32, 32)
               .generateTexture("bird2", 32, 32)
               .destroy()
@@ -262,23 +262,21 @@ export default function GamePage() {
             console.log('🏗️ Creating game scene...')
             
             // Store scene reference globally for socket communication
-            window.gameScene = this
-
-            // Create split screen divider
+            window.gameScene = this            // Create split screen divider
             this.add.graphics()
               .lineStyle(4, 0xffffff)
-              .moveTo(600, 0)
-              .lineTo(600, 600)
+              .moveTo(800, 0)
+              .lineTo(800, 800)
               .stroke()
 
             // Create background clouds
             for (let i = 0; i < 5; i++) {
               this.add
-                .image(Phaser.Math.Between(0, 1200), Phaser.Math.Between(50, 150), "cloud")
+                .image(Phaser.Math.Between(0, 1600), Phaser.Math.Between(50, 150), "cloud")
                 .setAlpha(0.3)
                 .setScale(0.5)
             }            // Create players with physics and bird-specific stats - positioned at extreme sides
-            this.player1 = this.physics.add.sprite(50, 300, "bird1")
+            this.player1 = this.physics.add.sprite(50, 325, "bird1")
             this.player1.setBounce(0.2)
             this.player1.setCollideWorldBounds(true)
             this.player1.setScale(1.5)
@@ -287,7 +285,7 @@ export default function GamePage() {
             this.player1.hp = this.playerNumber === 1 ? this.myBirdData.hp : this.opponentBirdData.hp
             this.player1.score = 0
 
-            this.player2 = this.physics.add.sprite(1150, 300, "bird2")
+            this.player2 = this.physics.add.sprite(1550,325, "bird2")
             this.player2.setBounce(0.2)
             this.player2.setCollideWorldBounds(true)
             this.player2.setScale(1.5)
@@ -324,92 +322,141 @@ export default function GamePage() {
           try {
             // Player names based on player number
             const myName = playerName
-            const opponentName = gameInfo.matchData.opponent
-
-            // Player 1 UI (left side)
+            const opponentName = gameInfo.matchData.opponent            // Player 1 UI (left side) with proper depth
             this.add.text(20, 20, this.playerNumber === 1 ? myName : opponentName, {
               fontSize: "24px",
               color: "#ffffff",
               fontStyle: "bold",
               stroke: "#000000",
               strokeThickness: 2,
-            })
+            }).setDepth(1000)
 
             this.player1HPText = this.add.text(20, 50, "HP: 100", {
               fontSize: "20px",
               color: "#ff6b6b",
               stroke: "#000000",
               strokeThickness: 2,
-            })
+            }).setDepth(1000)
 
             this.player1ScoreText = this.add.text(20, 80, "Score: 0", {
               fontSize: "20px",
               color: "#ffffff",
               stroke: "#000000",
               strokeThickness: 2,
-            })
-
-            // Player 2 UI (right side)
-            this.add.text(620, 20, this.playerNumber === 2 ? myName : opponentName, {
+            }).setDepth(1000)            // Player 2 UI (right side) with proper depth
+            this.add.text(820, 20, this.playerNumber === 2 ? myName : opponentName, {
               fontSize: "24px",
               color: "#ffffff",
               fontStyle: "bold",
               stroke: "#000000",
               strokeThickness: 2,
-            })
+            }).setDepth(1000)
 
-            this.player2HPText = this.add.text(620, 50, "HP: 100", {
+            this.player2HPText = this.add.text(820, 50, "HP: 100", {
               fontSize: "20px",
               color: "#4ecdc4",
               stroke: "#000000",
               strokeThickness: 2,
-            })
+            }).setDepth(1000)
 
-            this.player2ScoreText = this.add.text(620, 80, "Score: 0", {
+            this.player2ScoreText = this.add.text(820, 80, "Score: 0", {
               fontSize: "20px",
               color: "#ffffff",
               stroke: "#000000",
               strokeThickness: 2,
-            })            // Show ability UI for current player
-            const abilityUIX = this.playerNumber === 1 ? 20 : 620
-            
-            // Bird-specific ability cooldown UI
+            }).setDepth(1000)// Show ability UI for current player
+            const abilityUIX = this.playerNumber === 1 ? 20 : 820            // Bird-specific ability cooldown UI with improved visibility and consistent colors
             this.abilityTexts.q = this.add.text(abilityUIX, 120, `Q - ${this.myBirdData.abilities.normal.name}: Ready`, {
-              fontSize: "16px",
-              color: "#ffffff",
+              fontSize: "18px",
+              color: "#00ff00",
+              fontStyle: "bold",
               stroke: "#000000",
-              strokeThickness: 1,
-            })
-            this.abilityTexts.e = this.add.text(abilityUIX, 140, `E - ${this.myBirdData.abilities.signature.name}: Ready`, {
-              fontSize: "16px",
-              color: "#ffffff",
+              strokeThickness: 3,
+              shadow: {
+                offsetX: 2,
+                offsetY: 2,
+                color: "#000000",
+                blur: 2,
+                fill: true
+              }
+            }).setDepth(1000)
+            this.abilityTexts.e = this.add.text(abilityUIX, 145, `E - ${this.myBirdData.abilities.signature.name}: Ready`, {
+              fontSize: "18px",
+              color: "#00ff00",
+              fontStyle: "bold",
               stroke: "#000000",
-              strokeThickness: 1,
-            })
-            this.abilityTexts.c = this.add.text(abilityUIX, 160, "C - Universal Heal: Ready", {
-              fontSize: "16px",
-              color: "#ffffff",
+              strokeThickness: 3,
+              shadow: {
+                offsetX: 2,
+                offsetY: 2,
+                color: "#000000",
+                blur: 2,
+                fill: true
+              }
+            }).setDepth(1000)
+            this.abilityTexts.c = this.add.text(abilityUIX, 170, "C - Universal Heal: Ready", {
+              fontSize: "18px",
+              color: "#00ff00",
+              fontStyle: "bold",
               stroke: "#000000",
-              strokeThickness: 1,
-            })
-            this.abilityTexts.x = this.add.text(abilityUIX, 180, `X - ${this.myBirdData.abilities.ultimate.name}: Ready`, {
-              fontSize: "16px",
-              color: "#ffffff",
+              strokeThickness: 3,
+              shadow: {
+                offsetX: 2,
+                offsetY: 2,
+                color: "#000000",
+                blur: 2,
+                fill: true
+              }
+            }).setDepth(1000)
+            this.abilityTexts.x = this.add.text(abilityUIX, 195, `X - ${this.myBirdData.abilities.ultimate.name}: Ready`, {
+              fontSize: "18px",
+              color: "#00ff00",
+              fontStyle: "bold",
               stroke: "#000000",
-              strokeThickness: 1,
-            })
-
-            // Controls help
-            this.add.text(abilityUIX, 220, "Controls:", {
-              fontSize: "16px",
+              strokeThickness: 3,
+              shadow: {
+                offsetX: 2,
+                offsetY: 2,
+                color: "#000000",
+                blur: 2,
+                fill: true
+              }
+            }).setDepth(1000)            // Controls help with improved visibility and proper depth
+            this.add.text(abilityUIX, 235, "Controls:", {
+              fontSize: "18px",
               color: "#ffffff",
               fontStyle: "bold",
               stroke: "#000000",
-              strokeThickness: 1,
-            })
-            this.add.text(abilityUIX, 240, "W/S: Up/Down", { fontSize: "14px", color: "#ffffff" })
-            this.add.text(abilityUIX, 255, "A/D: Left/Right", { fontSize: "14px", color: "#ffffff" })
-            this.add.text(abilityUIX, 270, "Q/E/C/X: Abilities", { fontSize: "14px", color: "#ffffff" })
+              strokeThickness: 2,
+              shadow: {
+                offsetX: 1,
+                offsetY: 1,
+                color: "#000000",
+                blur: 1,
+                fill: true
+              }
+            }).setDepth(1000)
+            this.add.text(abilityUIX, 260, "W/S: Up/Down", { 
+              fontSize: "16px", 
+              color: "#ffffff",
+              fontStyle: "bold",
+              stroke: "#000000",
+              strokeThickness: 1
+            }).setDepth(1000)
+            this.add.text(abilityUIX, 280, "A/D: Left/Right", { 
+              fontSize: "16px", 
+              color: "#ffffff",
+              fontStyle: "bold",
+              stroke: "#000000",
+              strokeThickness: 1
+            }).setDepth(1000)
+            this.add.text(abilityUIX, 300, "Q/E/C/X: Abilities", { 
+              fontSize: "16px", 
+              color: "#ffffff",
+              fontStyle: "bold",
+              stroke: "#000000",
+              strokeThickness: 1
+            }).setDepth(1000)
           } catch (err) {
             console.error("Error in createUI:", err)
           }
@@ -564,44 +611,51 @@ export default function GamePage() {
         }        spawnPipes() {
           if (this.gameOver) return
 
-          try {
-            const gap = 180
-            const pipeY = Phaser.Math.Between(150, 450)
-            const centerX = 600 // Middle line
+          try {            
+            const canvasHeight = 800;
+            const canvasWidth = 1600;
+            const pipeWidth = 64;
+            const gap = 200; // Gap between top and bottom pipes
+            const centerX = canvasWidth / 2; // 800
+            const pipeY = Phaser.Math.Between(200, canvasHeight - 200); // vertical center of gap
 
-            // Create pipes at center that move toward left side (player 1)
-            const topPipeLeft = this.pipes.create(centerX, pipeY - gap / 2 - 200, "pipe")
-            const bottomPipeLeft = this.pipes.create(centerX, pipeY + gap / 2 + 200, "pipe")            // Set velocity toward player 1 (left side)
-            topPipeLeft.setVelocityX(-150)
-            topPipeLeft.setVelocityY(0) // Ensure no vertical movement
-            bottomPipeLeft.setVelocityX(-150)
-            bottomPipeLeft.setVelocityY(0) // Ensure no vertical movement
-            topPipeLeft.body.setSize(64, 400)
-            bottomPipeLeft.body.setSize(64, 400)
-            topPipeLeft.body.setImmovable(true)
-            bottomPipeLeft.body.setImmovable(true)
-            topPipeLeft.body.setGravityY(0) // No gravity - pipes stay level like real Flappy Bird
-            bottomPipeLeft.body.setGravityY(0)
-            topPipeLeft.side = "left"
-            bottomPipeLeft.side = "left"
+            // Calculate actual visible heights
+            const topPipeHeight = pipeY - gap / 2;
+            const bottomPipeHeight = canvasHeight - (pipeY + gap / 2);
 
-            // Create pipes at center that move toward right side (player 2)
-            const topPipeRight = this.pipes.create(centerX, pipeY - gap / 2 - 200, "pipe")
-            const bottomPipeRight = this.pipes.create(centerX, pipeY + gap / 2 + 200, "pipe")
+            // === LEFT SIDE PIPES ===
+            const topPipeLeft = this.pipes.create(centerX, pipeY - gap / 2, "pipe")
+                .setOrigin(0.5, 1)
+                .setDisplaySize(pipeWidth, topPipeHeight)
+                .setVelocityX(-120);
+            topPipeLeft.body.setAllowGravity(false);
+            topPipeLeft.body.setImmovable(true);
+            topPipeLeft.side = "left";
 
-            // Set velocity toward player 2 (right side)
-            topPipeRight.setVelocityX(150)
-            topPipeRight.setVelocityY(0) // Ensure no vertical movement
-            bottomPipeRight.setVelocityX(150)
-            bottomPipeRight.setVelocityY(0) // Ensure no vertical movement
-            topPipeRight.body.setSize(64, 400)
-            bottomPipeRight.body.setSize(64, 400)
-            topPipeRight.body.setImmovable(true)
-            bottomPipeRight.body.setImmovable(true)
-            topPipeRight.body.setGravityY(0) // No gravity - pipes stay level like real Flappy Bird
-            bottomPipeRight.body.setGravityY(0)
-            topPipeRight.side = "right"
-            bottomPipeRight.side = "right"
+            const bottomPipeLeft = this.pipes.create(centerX, pipeY + gap / 2, "pipe")
+                .setOrigin(0.5, 0)
+                .setDisplaySize(pipeWidth, bottomPipeHeight)
+                .setVelocityX(-120);
+            bottomPipeLeft.body.setAllowGravity(false);
+            bottomPipeLeft.body.setImmovable(true);
+            bottomPipeLeft.side = "left";
+
+            // === RIGHT SIDE PIPES ===
+            const topPipeRight = this.pipes.create(centerX, pipeY - gap / 2, "pipe")
+                .setOrigin(0.5, 1)
+                .setDisplaySize(pipeWidth, topPipeHeight)
+                .setVelocityX(120);
+            topPipeRight.body.setAllowGravity(false);
+            topPipeRight.body.setImmovable(true);
+            topPipeRight.side = "right";
+
+            const bottomPipeRight = this.pipes.create(centerX, pipeY + gap / 2, "pipe")
+                .setOrigin(0.5, 0)
+                .setDisplaySize(pipeWidth, bottomPipeHeight)
+                .setVelocityX(120);
+            bottomPipeRight.body.setAllowGravity(false);
+            bottomPipeRight.body.setImmovable(true);
+            bottomPipeRight.side = "right";
 
             // Set up collisions for both players with all pipes (universal collision system)
             this.physics.add.overlap(this.player1, [topPipeLeft, bottomPipeLeft, topPipeRight, bottomPipeRight], () => {
@@ -683,7 +737,7 @@ export default function GamePage() {
               this.sendGameAction('damage', { target: targetPlayer, amount: 10 })
               break
             case "e": // Flame Wave - 20 AoE damage
-              this.showAbilityEffect("🌊 Flame Wave", 600, 300, "#ff6600")
+              this.showAbilityEffect("🌊 Flame Wave", 800, 400, "#ff6600")
               this.sendGameAction('damage', { target: targetPlayer, amount: 20 })
               break
             case "x": // Rebirth - Heal 50 HP (once per match)
@@ -760,7 +814,7 @@ export default function GamePage() {
           }
           
           if (damage > 0) {
-            this.showAbilityEffect(abilityName, 600, 250, "#ffff00")
+            this.showAbilityEffect(abilityName, 800, 350, "#ffff00")
             this.sendGameAction('damage', { target: targetPlayer, amount: damage })
           }
         }
@@ -954,7 +1008,7 @@ export default function GamePage() {
           
           // Show appropriate visual effect
           const color = this.getBirdAbilityColor(birdType || this.opponentBird, ability)
-          this.showAbilityEffect(`Opponent used ${abilityName}`, 600, 350, color)
+          this.showAbilityEffect(`Opponent used ${abilityName}`, 800, 450, color)
           
           // Apply any visual effects based on opponent's bird type
           if (birdType) {
@@ -981,23 +1035,23 @@ export default function GamePage() {
           switch (birdType) {
             case "phoenix":
               if (ability === "q") this.showAbilityEffect("🔥", opponentPlayer.x - 50, opponentPlayer.y, "#ff4500")
-              else if (ability === "e") this.showAbilityEffect("🌊🔥", 600, 300, "#ff6600")
+              else if (ability === "e") this.showAbilityEffect("🌊🔥", 800, 400, "#ff6600")
               else if (ability === "x") this.showAbilityEffect("🔥 Phoenix rises!", opponentPlayer.x, opponentPlayer.y - 60, "#ff0000")
               break
             case "frostbeak":
               if (ability === "q") this.showAbilityEffect("❄️", opponentPlayer.x - 50, opponentPlayer.y, "#00bfff")
               else if (ability === "e") this.showAbilityEffect("🌨️ Blizzard incoming!", 300, 300, "#87ceeb")
-              else if (ability === "x") this.showAbilityEffect("🧊 Time frozen!", 600, 300, "#00ffff")
+              else if (ability === "x") this.showAbilityEffect("🧊 Time frozen!", 800, 400, "#00ffff")
               break
             case "thunderwing":
               if (ability === "q") this.showAbilityEffect("⚡", opponentPlayer.x - 50, opponentPlayer.y, "#ffff00")
               else if (ability === "e") this.showAbilityEffect("💨 Wind incoming!", 300, 300, "#87ceeb")
-              else if (ability === "x") this.showAbilityEffect("⚡ Lightning strikes!", 600, 300, "#ffff00")
+              else if (ability === "x") this.showAbilityEffect("⚡ Lightning strikes!", 800, 400, "#ffff00")
               break
             case "shadowfeather":
               if (ability === "q") this.showAbilityEffect("🌙", opponentPlayer.x - 50, opponentPlayer.y, "#4b0082")
               else if (ability === "e") this.showAbilityEffect("👻 Enemy vanished!", opponentPlayer.x, opponentPlayer.y - 60, "#9370db")
-              else if (ability === "x") this.showAbilityEffect("💀 Nightmare curse!", 600, 300, "#800080")
+              else if (ability === "x") this.showAbilityEffect("💀 Nightmare curse!", 800, 400, "#800080")
               break
           }
         }
@@ -1009,7 +1063,7 @@ export default function GamePage() {
             const myPlayer = this.playerNumber === 1 ? this.player1 : this.player2
             const playerX = myPlayer.x
             const playerY = myPlayer.y
-            const centerX = 600
+            const centerX = 800
 
             let isBlocked = false
             
@@ -1057,10 +1111,9 @@ export default function GamePage() {
         }
 
         endGame(winner: string, reason: string) {
-          try {
-            this.gameOver = true
+          try {            this.gameOver = true
             this.gameOverText = this.add
-              .text(600, 250, winner, {
+              .text(800, 350, winner, {
                 fontSize: "48px",
                 color: "#ffffff",
                 fontStyle: "bold",
@@ -1070,7 +1123,7 @@ export default function GamePage() {
               .setOrigin(0.5)
 
             this.add
-              .text(600, 300, reason, {
+              .text(800, 400, reason, {
                 fontSize: "24px",
                 color: "#ffffff",
                 stroke: "#000000",
@@ -1078,7 +1131,7 @@ export default function GamePage() {
               })              .setOrigin(0.5)
 
             this.add
-              .text(600, 350, "Press ESC to find new match", {
+              .text(800, 450, "Press ESC to find new match", {
                 fontSize: "18px",
                 color: "#ffffff",
                 stroke: "#000000",
@@ -1130,15 +1183,13 @@ export default function GamePage() {
             console.error("Error in update:", err)
           }
         }
-      }
-
-      // Game configuration
+      }      // Game configuration
       const config = {
         type: Phaser.AUTO,
-        width: 1200,
-        height: 600,
+        width: 1600,
+        height: 800,
         parent: gameRef.current,
-        backgroundColor: "#87CEEB",        
+        backgroundColor: "#87CEEB",
         physics: {
           default: "arcade",
           arcade: {
@@ -1400,7 +1451,7 @@ export default function GamePage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-sky-400 via-sky-300 to-green-400 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-b from-[#D5B9FA] via-[#B083F9] to-[#8C5FD9] flex items-center justify-center p-4">
         <Card className="max-w-md w-full p-8 bg-white/90 backdrop-blur-sm">
           <div className="text-center space-y-4">
             <div className="text-6xl">❌</div>
@@ -1423,7 +1474,7 @@ export default function GamePage() {
 
   if (matchStatus === 'loading' || matchStatus === 'connecting') {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-green-600 via-blue-600 to-purple-600 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-b from-[#B083F9] via-[#8C5FD9] to-[#D5B9FA] flex items-center justify-center p-4">
         <Card className="max-w-md w-full p-8 bg-white/90 backdrop-blur-sm">
           <div className="text-center space-y-4">
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mx-auto"></div>
@@ -1443,37 +1494,18 @@ export default function GamePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-600 to-indigo-700 flex flex-col items-center justify-center p-4">
       {!gameLoaded && matchStatus === 'playing' && (
         <div className="text-center mb-4">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
           <p className="text-white">Loading Battle Arena...</p>
         </div>
-      )}
-
-      {/* Always render game container */}
+      )}      {/* Always render game container */}
       <div
         ref={gameRef}
         className="border-4 border-white rounded-lg shadow-2xl"
-        style={{ width: "1200px", height: "600px" }}
+        style={{ width: "1600px", height: "800px" }}
       />
-
-      {gameLoaded && gameData && (
-        <div className="mt-4 grid grid-cols-2 gap-4 text-white text-center">
-          <div className="bg-red-600/80 p-2 rounded">
-            <p className="font-bold">
-              {gameData.matchData.playerNumber === 1 ? "You" : gameData.matchData.opponent}: {gameStats.player1HP} HP
-            </p>
-            <p>Score: {gameStats.player1Score}</p>
-          </div>
-          <div className="bg-blue-600/80 p-2 rounded">
-            <p className="font-bold">
-              {gameData.matchData.playerNumber === 2 ? "You" : gameData.matchData.opponent}: {gameStats.player2HP} HP
-            </p>
-            <p>Score: {gameStats.player2Score}</p>
-          </div>
-        </div>
-      )}
 
       <div className="mt-4 text-center">
         <Button onClick={handleBackToMenu} variant="outline" className="bg-white/90">

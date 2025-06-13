@@ -44,20 +44,20 @@ export default function MatchmakingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-400 via-sky-300 to-green-400 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-b from-[#D5B9FA] via-[#B083F9] to-[#8C5FD9] flex items-center justify-center p-4">
       <Card className="max-w-md w-full p-8 bg-white/90 backdrop-blur-sm shadow-2xl">
         <div className="text-center space-y-6">
           {/* Header */}
           <div className="space-y-2">
-            <Users className="w-16 h-16 mx-auto text-blue-500" />
+            <Users className="w-16 h-16 mx-auto text-[#B083F9]" />
             <h1 className="text-3xl font-bold text-gray-800">Finding Opponent</h1>
             <p className="text-gray-600">Searching for a worthy challenger...</p>
           </div>
 
           {/* Player Info */}
-          <div className="bg-blue-50 rounded-lg p-4">
+          <div className="bg-[#D5B9FA]/20 rounded-lg p-4">
             <p className="text-sm text-gray-600">Playing as:</p>
-            <p className="text-xl font-semibold text-blue-700">{playerName}</p>
+            <p className="text-xl font-semibold text-[#8C5FD9]">{playerName}</p>
           </div>
 
           {/* Search Status */}
@@ -66,15 +66,15 @@ export default function MatchmakingPage() {
             <div className="flex justify-center">
               <div className="flex space-x-2">
                 <div
-                  className="w-3 h-3 bg-blue-500 rounded-full animate-bounce"
+                  className="w-3 h-3 bg-[#B083F9] rounded-full animate-bounce"
                   style={{ animationDelay: "0ms" }}
                 ></div>
                 <div
-                  className="w-3 h-3 bg-blue-500 rounded-full animate-bounce"
+                  className="w-3 h-3 bg-[#B083F9] rounded-full animate-bounce"
                   style={{ animationDelay: "150ms" }}
                 ></div>
                 <div
-                  className="w-3 h-3 bg-blue-500 rounded-full animate-bounce"
+                  className="w-3 h-3 bg-[#B083F9] rounded-full animate-bounce"
                   style={{ animationDelay: "300ms" }}
                 ></div>
               </div>

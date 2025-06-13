@@ -526,7 +526,7 @@ export default function BirdSelectionPage() {
   // Loading state during game transition
   if (isNavigatingToGame) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-green-600 via-blue-600 to-purple-600 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-b from-[#B083F9] via-[#8C5FD9] to-[#D5B9FA] flex items-center justify-center p-4">
         <Card className="max-w-md w-full p-8 bg-white/90 backdrop-blur-sm">
           <div className="text-center space-y-4">
             <div className="text-6xl animate-bounce">🚀</div>
@@ -597,7 +597,7 @@ export default function BirdSelectionPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-400 via-sky-300 to-green-400 p-4">
+    <div className="min-h-screen bg-gradient-to-b from-[#D5B9FA] via-[#B083F9] to-[#8C5FD9] p-4">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
@@ -810,7 +810,7 @@ export default function BirdSelectionPage() {
             className={`font-semibold px-12 py-4 text-xl ${
               isReady 
                 ? "bg-blue-600 hover:bg-blue-700 text-white" 
-                : "bg-green-600 hover:bg-green-700 text-white"
+                : "bg-[#B083F9] hover:bg-[#8C5FD9] text-white"
             }`}
           >
             {isReady ? (

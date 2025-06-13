@@ -6,10 +6,29 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Kreo Brand Colors */
+:root {
+  --kreo-primary: #B083F9;
+  --kreo-dark: #8C5FD9;
+  --kreo-light: #D5B9FA;
+  --kreo-background: #FFFFFF;
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+  
+  /* Kreo Brand Utility Classes */
+  .bg-kreo-primary { background-color: var(--kreo-primary); }
+  .bg-kreo-dark { background-color: var(--kreo-dark); }
+  .bg-kreo-light { background-color: var(--kreo-light); }
+  .text-kreo-primary { color: var(--kreo-primary); }
+  .text-kreo-dark { color: var(--kreo-dark); }
+  .text-kreo-light { color: var(--kreo-light); }
+  .border-kreo-primary { border-color: var(--kreo-primary); }
+  .border-kreo-dark { border-color: var(--kreo-dark); }
+  .border-kreo-light { border-color: var(--kreo-light); }
 }
 
 @layer base {

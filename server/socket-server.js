@@ -1,9 +1,170 @@
 const { createServer } = require('http')
 const { Server } = require('socket.io')
+const { BIRD_CONFIGS, UNIVERSAL_ABILITY } = require('./bird-config')
+const GameLogic = require('./game-logic')
+
+// Initialize game logic
+const gameLogic = new GameLogic()
 
 // FIXED: Declare variables BEFORE using them in the HTTP server
 const gameRooms = new Map()
 const waitingPlayers = []
+
+// Set game rooms reference in game logic
+gameLogic.setGameRooms(gameRooms)
+
+// Helper function to calculate damage
+function calculateDamage(attacker, baseDamage) {
+  const attackModifier = attacker.attack / 100
+  return Math.floor(baseDamage * attackModifier)
+}
+
+// Helper function to deal damage
+function dealDamage(player, damage) {
+  // Check for invulnerability
+  if (player.statusEffects?.has('invulnerable')) {
+    return 0
+  }
+
+  const actualDamage = Math.min(damage, player.hp)
+  player.hp = Math.max(0, player.hp - damage)
+  return actualDamage
+}
+
+// Helper function to heal player
+function healPlayer(player, healAmount) {
+  const actualHeal = Math.min(healAmount, player.maxHp - player.hp)
+  player.hp += actualHeal
+  return actualHeal
+}
+
+// Helper function to apply status effects
+function applyStatusEffect(player, effect, duration) {
+  if (!player.statusEffects) player.statusEffects = new Map()
+  
+  const endTime = Date.now() + duration
+  player.statusEffects.set(effect, endTime)
+
+  // Auto-remove after duration
+  setTimeout(() => {
+    if (player.statusEffects) {
+      player.statusEffects.delete(effect)
+    }
+  }, duration)
+}
+
+// Helper function to execute ability effects
+function executeAbility(room, caster, ability, abilityType, casterIndex) {
+  const opponentIndex = casterIndex === 0 ? 1 : 0
+  const opponentKey = opponentIndex === 0 ? "player1" : "player2"
+  const opponent = room.gameState[opponentKey]
+
+  const result = {
+    success: true,
+    effects: [],
+    damage: 0,
+    healing: 0
+  }
+
+  switch (ability.type) {
+    case 'projectile':
+    case 'lightning':
+    case 'stealth':
+      // Direct damage abilities
+      const damage = calculateDamage(caster, ability.damage)
+      const actualDamage = dealDamage(opponent, damage)
+      result.damage = actualDamage
+      result.effects.push({
+        type: 'damage',
+        target: opponentIndex + 1,
+        amount: actualDamage
+      })
+      break
+
+    case 'aoe':
+      // Area of effect damage
+      const aoeDamage = calculateDamage(caster, ability.damage)
+      const actualAoeDamage = dealDamage(opponent, aoeDamage)
+      result.damage = actualAoeDamage
+      result.effects.push({
+        type: 'aoe_damage',
+        target: opponentIndex + 1,
+        amount: actualAoeDamage
+      })
+      break
+
+    case 'heal':
+      // Healing abilities
+      const healAmount = ability.heal
+      const actualHeal = healPlayer(caster, healAmount)
+      result.healing = actualHeal
+      result.effects.push({
+        type: 'heal',
+        target: casterIndex + 1,
+        amount: actualHeal
+      })
+      break
+
+    case 'disable':
+    case 'invulnerability':
+    case 'control':
+      // Status effect abilities
+      const target = ability.statusEffect === 'invulnerable' ? caster : opponent
+      const targetIndex = ability.statusEffect === 'invulnerable' ? casterIndex : opponentIndex
+      applyStatusEffect(target, ability.statusEffect, ability.statusDuration)
+      result.effects.push({
+        type: 'status_effect',
+        target: targetIndex + 1,
+        effect: ability.statusEffect,
+        duration: ability.statusDuration
+      })
+      break
+
+    case 'push':
+      // Environmental manipulation
+      result.effects.push({
+        type: 'push',
+        target: opponentIndex + 1,
+        force: ability.pushForce
+      })
+      break
+
+    case 'obstacle':
+      // Create obstacles
+      result.effects.push({
+        type: 'create_obstacle',
+        target: opponentIndex + 1,
+        duration: ability.duration
+      })
+      break
+
+    case 'chain':
+      // Chain lightning damage
+      const chainDamage = calculateDamage(caster, ability.damage)
+      const actualChainDamage = dealDamage(opponent, chainDamage)
+      result.damage = actualChainDamage
+      result.effects.push({
+        type: 'chain_damage',
+        target: opponentIndex + 1,
+        amount: actualChainDamage,
+        chainRange: ability.chainRange
+      })
+      break
+  }
+
+  // Apply status effects from normal abilities
+  if (ability.statusEffect && ability.statusDuration && ability.type !== 'disable' && ability.type !== 'invulnerability' && ability.type !== 'control') {
+    applyStatusEffect(opponent, ability.statusEffect, ability.statusDuration)
+    result.effects.push({
+      type: 'status_effect',
+      target: opponentIndex + 1,
+      effect: ability.statusEffect,
+      duration: ability.statusDuration
+    })
+  }
+
+  return result
+}
 
 // Create HTTP server with better error handling for Railway
 const httpServer = createServer((req, res) => {
@@ -37,13 +198,23 @@ const httpServer = createServer((req, res) => {
       transports: ['polling', 'websocket'],
       cors: 'enabled'
     }))
+  } else if (req.url === '/birds' || req.url === '/api/birds') {
+    // Bird configurations endpoint
+    res.writeHead(200, { 
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600'
+    })
+    res.end(JSON.stringify({ 
+      birds: BIRD_CONFIGS,
+      universal: UNIVERSAL_ABILITY
+    }))
   } else {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       message: 'Socket.io server running',
       status: 'ok',
       socketPath: '/socket.io/',
-      availableEndpoints: ['/health', '/socket.io/']
+      availableEndpoints: ['/health', '/socket.io/', '/birds']
     }))
   }
 })
@@ -126,14 +297,20 @@ io.on("connection", (socket) => {
             score: 0, 
             bird: null, 
             isReady: false,
-            name: player1.name // ADDED: Store player name in game state
+            name: player1.name,
+            statusEffects: new Map(),
+            abilityCooldowns: new Map(),
+            ultimateUsesLeft: Infinity
           },
           player2: { 
             hp: 100, 
             score: 0, 
             bird: null, 
             isReady: false,
-            name: player2.name // ADDED: Store player name in game state
+            name: player2.name,
+            statusEffects: new Map(),
+            abilityCooldowns: new Map(),
+            ultimateUsesLeft: Infinity
           },
           pipes: [],
           gameStarted: false,
@@ -144,26 +321,25 @@ io.on("connection", (socket) => {
       player1.socket.join(roomId)
       player2.socket.join(roomId)
 
-      // FIXED: Send correct names to each player
       player1.socket.emit("matchFound", {
         roomId,
-        opponent: player2.name, // Player 1 sees Player 2's name as opponent
+        opponent: player2.name,
         playerNumber: 1,
-        myName: player1.name // Player 1 sees their own name
+        myName: player1.name
       })
 
       player2.socket.emit("matchFound", {
         roomId,
-        opponent: player1.name, // Player 2 sees Player 1's name as opponent
+        opponent: player1.name,
         playerNumber: 2,
-        myName: player2.name // Player 2 sees their own name
+        myName: player2.name
       })
 
       console.log(`Match created: ${roomId} with ${player1.name} (Player 1) vs ${player2.name} (Player 2)`)
     }
   })
 
-  // UPDATED: Bird selection with stealing mechanism
+  // UPDATED: Bird selection with stealing mechanism and server-side validation
   socket.on("selectBird", (data) => {
     if (!data?.roomId || !data?.birdId) {
       socket.emit("error", { message: "Invalid bird selection data" })
@@ -171,6 +347,13 @@ io.on("connection", (socket) => {
     }
 
     const { roomId, birdId, playerNumber, isLocked, timestamp } = data
+    
+    // Validate bird type
+    if (!gameLogic.isValidBird(birdId)) {
+      socket.emit("error", { message: "Invalid bird type" })
+      return
+    }
+
     const room = gameRooms.get(roomId)
 
     if (!room) {
@@ -216,16 +399,27 @@ io.on("connection", (socket) => {
       console.log(`Player ${playerIndex + 1} changed from ${room.gameState[playerKey].bird} to ${birdId}`)
     }
 
-    // Set new bird selection
+    // Set new bird selection and initialize player stats
     room.gameState[playerKey].bird = birdId
     room.gameState[playerKey].isReady = isLocked
+    
+    // Initialize player with bird stats if locked
+    if (isLocked) {
+      const birdConfig = gameLogic.getBirdConfig(birdId)
+      room.gameState[playerKey].hp = birdConfig.stats.hp
+      room.gameState[playerKey].maxHp = birdConfig.stats.hp
+      room.gameState[playerKey].speed = birdConfig.stats.speed
+      room.gameState[playerKey].attack = birdConfig.stats.attack
+      room.gameState[playerKey].ultimateUsesLeft = birdConfig.abilities.ultimate.usesPerMatch || Infinity
+    }
 
     // Notify all players about bird selection
     io.to(roomId).emit("birdSelected", {
       playerNumber: playerIndex + 1,
       birdId,
       isLocked,
-      timestamp
+      timestamp,
+      birdConfig: gameLogic.getBirdConfig(birdId)
     })
 
     console.log(`Player ${playerIndex + 1} (${room.gameState[playerKey].name}) ${isLocked ? 'locked' : 'selected'} bird: ${birdId}`)
@@ -249,6 +443,147 @@ io.on("connection", (socket) => {
 
       console.log(`🚀 Game started: ${roomId} with ${room.gameState.player1.name} (${room.gameState.player1.bird}) vs ${room.gameState.player2.name} (${room.gameState.player2.bird})`)
     }
+  })
+
+  // Handle ability usage
+  socket.on("useAbility", (data) => {
+    const { roomId, abilityType } = data
+    const playerId = socket.id
+
+    if (!roomId || !abilityType) {
+      socket.emit("error", { message: "Invalid ability data" })
+      return
+    }
+
+    const room = gameRooms.get(roomId)
+    if (!room || !room.gameState.gameStarted || room.gameState.gameOver) {
+      socket.emit("error", { message: "Invalid game state" })
+      return
+    }
+
+    const playerIndex = room.players.findIndex(p => p.id === playerId)
+    if (playerIndex === -1) {
+      socket.emit("error", { message: "Player not found in room" })
+      return
+    }
+
+    const playerKey = playerIndex === 0 ? "player1" : "player2"
+    const player = room.gameState[playerKey]
+    
+    if (!player.bird) {
+      socket.emit("error", { message: "No bird selected" })
+      return
+    }
+
+    // Check if player has status effects that prevent ability use
+    if (player.statusEffects?.has('freeze') || player.statusEffects?.has('nightmare')) {
+      socket.emit("abilityError", { error: "Unable to use abilities due to status effect" })
+      return
+    }
+
+    const birdConfig = gameLogic.getBirdConfig(player.bird)
+    let ability
+
+    // Handle universal heal ability
+    if (abilityType === 'universal') {
+      ability = UNIVERSAL_ABILITY.heal
+    } else {
+      ability = birdConfig.abilities[abilityType]
+    }
+
+    if (!ability) {
+      socket.emit("abilityError", { error: "Invalid ability" })
+      return
+    }
+
+    // Check cooldown
+    const cooldownKey = `${abilityType}`
+    const lastUsed = player.abilityCooldowns?.get(cooldownKey) || 0
+    const now = Date.now()
+    
+    if (now - lastUsed < ability.cooldown) {
+      socket.emit("abilityError", {
+        error: "Ability on cooldown",
+        remainingCooldown: ability.cooldown - (now - lastUsed)
+      })
+      return
+    }
+
+    // Check ultimate uses
+    if (abilityType === 'ultimate' && player.ultimateUsesLeft <= 0) {
+      socket.emit("abilityError", { error: "Ultimate already used" })
+      return
+    }
+
+    // Execute ability
+    const result = executeAbility(room, player, ability, abilityType, playerIndex)
+    
+    if (result.success) {
+      // Set cooldown
+      if (!player.abilityCooldowns) player.abilityCooldowns = new Map()
+      player.abilityCooldowns.set(cooldownKey, now)
+      
+      // Decrease ultimate uses
+      if (abilityType === 'ultimate') {
+        player.ultimateUsesLeft--
+      }
+
+      // Broadcast ability usage to both players
+      io.to(roomId).emit("abilityUsed", {
+        playerId,
+        playerNumber: playerIndex + 1,
+        abilityType,
+        abilityName: ability.name,
+        effects: result.effects,
+        damage: result.damage,
+        healing: result.healing
+      })
+
+      // Update game state
+      io.to(roomId).emit("gameStateUpdate", {
+        player1: {
+          hp: room.gameState.player1.hp,
+          isAlive: room.gameState.player1.hp > 0,
+          statusEffects: room.gameState.player1.statusEffects ? Array.from(room.gameState.player1.statusEffects.entries()) : []
+        },
+        player2: {
+          hp: room.gameState.player2.hp,
+          isAlive: room.gameState.player2.hp > 0,
+          statusEffects: room.gameState.player2.statusEffects ? Array.from(room.gameState.player2.statusEffects.entries()) : []
+        }
+      })
+
+      // Check for game over
+      if (room.gameState.player1.hp <= 0 || room.gameState.player2.hp <= 0) {
+        const winner = room.gameState.player1.hp > 0 ? 1 : 2
+        const winnerName = winner === 1 ? room.gameState.player1.name : room.gameState.player2.name
+        const loserName = winner === 1 ? room.gameState.player2.name : room.gameState.player1.name
+        
+        room.gameState.gameOver = true
+        io.to(roomId).emit("gameOver", {
+          winner,
+          winnerName,
+          loserName,
+          reason: "HP depleted"
+        })
+        
+        console.log(`Game over in room ${roomId}: ${winnerName} wins against ${loserName} (ability damage)`)
+        setTimeout(() => gameRooms.delete(roomId), 5000)
+      }
+    } else {
+      socket.emit("abilityError", {
+        error: result.error,
+        remainingCooldown: result.remainingCooldown
+      })
+    }
+  })
+
+  // Handle bird configuration requests
+  socket.on("getBirdConfigs", () => {
+    socket.emit("birdConfigs", {
+      birds: BIRD_CONFIGS,
+      universal: UNIVERSAL_ABILITY
+    })
   })
 
   // Handle player ready status
@@ -303,7 +638,7 @@ io.on("connection", (socket) => {
         player2Bird: room.gameState.player2.bird,
         player1Name: room.gameState.player1.name,
         player2Name: room.gameState.player2.name,
-        ready: true // Safety flag
+        ready: true
       })
 
       console.log(`🚀 Game started: ${roomId} with ${room.gameState.player1.name} (${room.gameState.player1.bird}) vs ${room.gameState.player2.name} (${room.gameState.player2.bird})`)
@@ -330,12 +665,11 @@ io.on("connection", (socket) => {
         break
 
       case "ability":
-        const playerIndex = room.players.findIndex(p => p.id === socket.id)
-        if (playerIndex !== -1) {
-          io.to(roomId).emit("abilityUsed", {
-            playerNumber: playerIndex + 1,
-            ability: payload?.ability,
-            target: payload?.target,
+        // Legacy ability handling - redirect to new useAbility handler
+        if (payload?.ability) {
+          socket.emit("useAbility", {
+            roomId,
+            abilityType: payload.ability
           })
         }
         break
@@ -347,6 +681,11 @@ io.on("connection", (socket) => {
 
         const targetPlayer = payload.target === 1 ? "player1" : "player2"
         if (room.gameState[targetPlayer]) {
+          // Check for invulnerability before applying damage
+          if (room.gameState[targetPlayer].statusEffects?.has('invulnerable')) {
+            return
+          }
+
           room.gameState[targetPlayer].hp = Math.max(0, room.gameState[targetPlayer].hp - payload.amount)
 
           io.to(roomId).emit("healthUpdate", {
@@ -380,12 +719,46 @@ io.on("connection", (socket) => {
 
         const healTargetPlayer = payload.target === 1 ? "player1" : "player2"
         if (room.gameState[healTargetPlayer]) {
-          room.gameState[healTargetPlayer].hp = Math.min(100, room.gameState[healTargetPlayer].hp + payload.amount)
+          const maxHp = room.gameState[healTargetPlayer].maxHp || 100
+          room.gameState[healTargetPlayer].hp = Math.min(maxHp, room.gameState[healTargetPlayer].hp + payload.amount)
 
           io.to(roomId).emit("healthUpdate", {
             player1HP: room.gameState.player1.hp,
             player2HP: room.gameState.player2.hp,
           })
+        }
+        break
+
+      case "pipeCollision":
+        // Handle pipe collision damage
+        if (typeof payload?.target !== 'number') {
+          return
+        }
+
+        const collisionTargetPlayer = payload.target === 1 ? "player1" : "player2"
+        if (room.gameState[collisionTargetPlayer]) {
+          // Pipe collision deals massive damage (usually fatal)
+          room.gameState[collisionTargetPlayer].hp = 0
+
+          io.to(roomId).emit("healthUpdate", {
+            player1HP: room.gameState.player1.hp,
+            player2HP: room.gameState.player2.hp,
+          })
+
+          const winner = payload.target === 1 ? 2 : 1
+          const winnerName = winner === 1 ? room.gameState.player1.name : room.gameState.player2.name
+          const loserName = winner === 1 ? room.gameState.player2.name : room.gameState.player1.name
+          
+          room.gameState.gameOver = true
+          io.to(roomId).emit("gameOver", {
+            winner,
+            winnerName,
+            loserName,
+            reason: "Pipe collision",
+          })
+          
+          console.log(`Game over in room ${roomId}: ${winnerName} wins against ${loserName} (pipe collision)`)
+          setTimeout(() => gameRooms.delete(roomId), 5000)
         }
         break
     }
@@ -427,7 +800,7 @@ io.on("connection", (socket) => {
               hp: 100, 
               score: 0, 
               bird: null, 
-              isReady: true, // Assume ready since coming from bird selection
+              isReady: true,
               name: playerNumber === 1 ? playerName : 'Opponent'
             },
             player2: { 
@@ -438,7 +811,7 @@ io.on("connection", (socket) => {
               name: playerNumber === 2 ? playerName : 'Opponent'
             },
             pipes: [],
-            gameStarted: true, // Game should start immediately
+            gameStarted: true,
             gameOver: false,
           },
         }

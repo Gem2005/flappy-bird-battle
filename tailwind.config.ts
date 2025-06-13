@@ -11,6 +11,13 @@ const config: Config = {
   theme: {
   	extend: {
   		colors: {
+  			// Kreo Brand Colors
+  			kreo: {
+  				primary: '#B083F9',
+  				dark: '#8C5FD9',
+  				light: '#D5B9FA',
+  				background: '#FFFFFF'
+  			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {

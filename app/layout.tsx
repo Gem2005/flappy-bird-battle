@@ -9,7 +9,12 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Flappy Bird Battle - Multiplayer Combat Edition",
   description: "Real-time multiplayer Flappy Bird with combat abilities and bird selection",
-    generator: 'v0.dev'
+  generator: 'v0.dev',
+  icons: {
+    icon: '/motif@.png',
+    shortcut: '/motif@.png',
+    apple: '/motif@.png',
+  },
 }
 
 export default function RootLayout({

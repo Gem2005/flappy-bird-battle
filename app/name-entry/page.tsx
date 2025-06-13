@@ -28,7 +28,7 @@ export default function NameEntryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-400 via-sky-300 to-green-400 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-b from-[#D5B9FA] via-[#B083F9] to-[#8C5FD9] flex items-center justify-center p-4">
       <Card className="max-w-md w-full p-8 bg-white/90 backdrop-blur-sm shadow-2xl">
         <div className="space-y-6">
           {/* Header */}
@@ -65,7 +65,7 @@ export default function NameEntryPage() {
               onClick={handleStartMatchmaking}
               disabled={!playerName.trim() || isLoading}
               size="lg"
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 text-lg"
+              className="w-full bg-[#B083F9] hover:bg-[#8C5FD9] text-white font-semibold py-4 text-lg"
             >
               {isLoading ? (
                 <div className="flex items-center">
@@ -85,7 +85,7 @@ export default function NameEntryPage() {
           <Button
             onClick={handleBack}
             variant="outline"
-            className="w-full border-2 border-gray-300 text-gray-600 hover:bg-gray-50"
+            className="w-full border-2 border-[#B083F9] text-[#8C5FD9] hover:bg-[#D5B9FA]/20"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Menu
